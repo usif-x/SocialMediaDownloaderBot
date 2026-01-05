@@ -108,11 +108,40 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             if format_type == "video"
             else ("🖼" if format_type == "image" else "🎵")
         )
-        await query.edit_message_text(
-            f"{query.message.text}\n\n{icon} *Select Quality:*",
-            reply_markup=reply_markup,
-            parse_mode="Markdown",
+        format_name = (
+            "Video"
+            if format_type == "video"
+            else ("Image" if format_type == "image" else "Audio")
         )
+
+        # Update message with format type selection shown
+        updated_text = query.message.text or query.message.caption
+        if updated_text:
+            # Add format type selection info
+            updated_text = f"{updated_text}\n\n✅ *Selected Format:* {icon} {format_name}\n\n{icon} *Select Quality:*"
+        else:
+            updated_text = f"{icon} *Select Quality:*"
+
+        # Try to edit message with photo if it exists
+        if query.message.photo:
+            try:
+                await query.message.edit_caption(
+                    caption=updated_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+            except:
+                await query.edit_message_text(
+                    updated_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+        else:
+            await query.edit_message_text(
+                updated_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
 
     # Handle quality selection
     elif action == "quality":
@@ -132,10 +161,35 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             if format_type == "video"
             else ("🖼" if format_type == "image" else "🎵")
         )
-        await query.edit_message_text(
-            f"{query.message.text_markdown}\n\n✅ Selected: {icon} {quality}\n⬇️ Starting download...",
-            parse_mode="Markdown",
+        format_name = (
+            "Video"
+            if format_type == "video"
+            else ("Image" if format_type == "image" else "Audio")
         )
+
+        # Get current message text
+        current_text = query.message.text or query.message.caption or ""
+
+        # Update with selection info
+        updated_text = f"{current_text}\n\n✅ *Selected Quality:* {icon} {quality}\n⬇️ *Starting download...*"
+
+        # Try to edit caption if message has photo, otherwise edit text
+        if query.message.photo:
+            try:
+                await query.message.edit_caption(
+                    caption=updated_text,
+                    parse_mode="Markdown",
+                )
+            except:
+                await query.edit_message_text(
+                    updated_text,
+                    parse_mode="Markdown",
+                )
+        else:
+            await query.edit_message_text(
+                updated_text,
+                parse_mode="Markdown",
+            )
 
         # Start download
         await download_and_send_video(

@@ -161,15 +161,45 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info_message = info_message.replace(
                 "*Select Format Type:*", "⬇️ Starting download..."
             )
-            await processing_msg.edit_text(info_message, parse_mode="Markdown")
+
+            # Send thumbnail with caption
+            thumbnail_url = video_info.get("thumbnail")
+            if thumbnail_url:
+                try:
+                    await processing_msg.delete()
+                    await update.message.reply_photo(
+                        photo=thumbnail_url, caption=info_message, parse_mode="Markdown"
+                    )
+                except:
+                    await processing_msg.edit_text(info_message, parse_mode="Markdown")
+            else:
+                await processing_msg.edit_text(info_message, parse_mode="Markdown")
+
             await download_and_send_video(
                 update, context, download.id, "video", "best", None, user.id
             )
         else:
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await processing_msg.edit_text(
-                info_message, reply_markup=reply_markup, parse_mode="Markdown"
-            )
+
+            # Send thumbnail with caption and keyboard
+            thumbnail_url = video_info.get("thumbnail")
+            if thumbnail_url:
+                try:
+                    await processing_msg.delete()
+                    await update.message.reply_photo(
+                        photo=thumbnail_url,
+                        caption=info_message,
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown",
+                    )
+                except:
+                    await processing_msg.edit_text(
+                        info_message, reply_markup=reply_markup, parse_mode="Markdown"
+                    )
+            else:
+                await processing_msg.edit_text(
+                    info_message, reply_markup=reply_markup, parse_mode="Markdown"
+                )
 
     except Exception as e:
         logger = logging.getLogger(__name__)
@@ -469,7 +499,22 @@ async def download_and_send_video(
             download.file_id = file_id
         db.commit()
 
-        await download_msg.delete()
+        # Update download message to show completed
+        icon = (
+            "🎬"
+            if format_type == "video"
+            else ("🖼" if format_type == "image" else "🎵")
+        )
+        try:
+            await download_msg.edit_text(
+                f"✅ *Downloaded Successfully!*\n\n"
+                f"{icon} *Format:* {format_type.title()}\n"
+                f"📊 *Quality:* {quality}\n"
+                f"💾 *Size:* {file_size / (1024*1024):.1f}MB",
+                parse_mode="Markdown",
+            )
+        except:
+            await download_msg.delete()
 
         # Clean up file
         try:
