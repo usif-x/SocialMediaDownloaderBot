@@ -375,8 +375,31 @@ async def download_and_send_video(
 
         caption = f"🎬 {video_info['title']}\n\n💾 Quality: {quality}"
 
-        # Get thumbnail if available (already embedded in audio by yt-dlp)
+        # Get performer (channel name) for audio
         performer = video_info.get("uploader", "Unknown Artist")
+
+        # Download thumbnail for audio
+        thumbnail_path = None
+        if format_type == "audio":
+            try:
+                import requests
+
+                thumbnail_url = video_info.get("thumbnail")
+                if thumbnail_url:
+                    # Download thumbnail
+                    thumbnail_dir = os.path.join(
+                        os.path.dirname(file_path), "thumbnails"
+                    )
+                    os.makedirs(thumbnail_dir, exist_ok=True)
+                    thumbnail_path = os.path.join(thumbnail_dir, f"thumb_{user_id}.jpg")
+
+                    response = requests.get(thumbnail_url, timeout=10)
+                    if response.status_code == 200:
+                        with open(thumbnail_path, "wb") as f:
+                            f.write(response.content)
+            except Exception as e:
+                logger.warning(f"Failed to download thumbnail: {e}")
+                thumbnail_path = None
 
         # Send media and capture message/file IDs for restore feature
         sent_message = None
@@ -384,18 +407,34 @@ async def download_and_send_video(
 
         with open(file_path, "rb") as media_file:
             if format_type == "audio":
-                sent_message = await context.bot.send_audio(
-                    chat_id=user_id,
-                    audio=media_file,
-                    caption=caption,
-                    title=video_info["title"],
-                    performer=performer,
-                    duration=video_info.get("duration", 0),
-                    read_timeout=120,
-                    write_timeout=120,
-                )
-                if sent_message.audio:
-                    file_id = sent_message.audio.file_id
+                # Prepare thumbnail for audio
+                thumbnail_file = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    thumbnail_file = open(thumbnail_path, "rb")
+
+                try:
+                    sent_message = await context.bot.send_audio(
+                        chat_id=user_id,
+                        audio=media_file,
+                        thumbnail=thumbnail_file,
+                        caption=caption,
+                        title=video_info["title"],
+                        performer=performer,
+                        duration=video_info.get("duration", 0),
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
+                    if sent_message.audio:
+                        file_id = sent_message.audio.file_id
+                finally:
+                    # Clean up thumbnail file
+                    if thumbnail_file:
+                        thumbnail_file.close()
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        try:
+                            os.remove(thumbnail_path)
+                        except:
+                            pass
             elif format_type == "image":
                 sent_message = await context.bot.send_photo(
                     chat_id=user_id,

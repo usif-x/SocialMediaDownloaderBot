@@ -62,7 +62,30 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Add specific quality options
         for fmt in formats[:8]:  # Limit to 8 options
-            quality_text = f"{fmt['quality']} ({fmt.get('ext', 'jpg').upper()})"
+            # Get file size
+            filesize = fmt.get("filesize") or fmt.get("filesize_approx", 0)
+
+            # Format file size
+            if filesize:
+                if filesize > 1024 * 1024 * 1024:  # GB
+                    size_str = f"{filesize / (1024 * 1024 * 1024):.1f}GB"
+                elif filesize > 1024 * 1024:  # MB
+                    size_str = f"{filesize / (1024 * 1024):.1f}MB"
+                else:  # KB
+                    size_str = f"{filesize / 1024:.0f}KB"
+            else:
+                size_str = "~"
+
+            # Check if can send (Telegram bot limit is 50MB)
+            can_send = (
+                "✅"
+                if filesize and filesize <= 50 * 1024 * 1024
+                else ("❌" if filesize and filesize > 50 * 1024 * 1024 else "")
+            )
+
+            # Build quality text with size and status
+            quality_text = f"{fmt['quality']} ({fmt.get('ext', 'jpg').upper()}) {size_str} {can_send}".strip()
+
             format_id = fmt.get(
                 "format_id", fmt.get("url", "none")[:50]
             )  # Use URL for images
