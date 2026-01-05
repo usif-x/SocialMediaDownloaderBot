@@ -26,6 +26,16 @@ class VideoDownloader:
         self.download_path = settings.TEMP_DOWNLOAD_PATH
         os.makedirs(self.download_path, exist_ok=True)
 
+        # Get cookies file path - look in project root
+        if os.path.isabs(self.download_path):
+            # Absolute path - go to parent directory
+            self.cookies_file = os.path.join(
+                os.path.dirname(os.path.abspath(self.download_path)), "cookies.txt"
+            )
+        else:
+            # Relative path - use current working directory
+            self.cookies_file = os.path.abspath("cookies.txt")
+
     def get_video_info(self, url: str) -> Optional[Dict]:
         """
         Extract video information without downloading

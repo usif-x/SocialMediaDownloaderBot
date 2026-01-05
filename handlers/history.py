@@ -3,6 +3,7 @@ from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from database import Download, User, get_db
 
@@ -72,23 +73,18 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else (dl.title or "Unknown")
             )
 
-            # Escape markdown special characters in title
-            title = (
-                title.replace("_", "\\_")
-                .replace("*", "\\*")
-                .replace("[", "\\[")
-                .replace("`", "\\`")
-            )
+            # Escape markdown special characters properly using telegram helper
+            title_escaped = escape_markdown(title, version=2)
 
             history_text += (
-                f"{i}. {type_icon} *{title}*\n"
+                f"{i}\\. {type_icon} *{title_escaped}*\n"
                 f"   📅 {date_str} | 💾 {size_str}\n"
                 f"   🔗 /restore\\_{dl.id}\n\n"
             )
 
-        history_text += "💡 _Use /restore\_ID to get the file again_"
+        history_text += "💡 _Use /restore\\_ID to get the file again_"
 
-        await update.message.reply_text(history_text, parse_mode="Markdown")
+        await update.message.reply_text(history_text, parse_mode="MarkdownV2")
 
     except Exception as e:
         logger.error(f"Error in history_command: {e}", exc_info=True)
