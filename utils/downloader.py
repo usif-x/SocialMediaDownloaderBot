@@ -38,25 +38,30 @@ class VideoDownloader:
             "no_warnings": True,
             "extract_flat": False,
             "socket_timeout": 30,
-            "extractor_args": {"instagram": {"skip": ["dash"]}},
+            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
         }
 
-        # Add cookie support for YouTube and other sites
+        # Add cookie support for YouTube - prioritize cookies.txt file
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+
+        # Use cookies file if it exists (works in Docker)
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
-            logger.info("Using cookies file for authentication")
+            logger.info("Using cookies.txt file for authentication")
         else:
-            # Try to use browser cookies (Chrome/Firefox)
-            try:
-                ydl_opts["cookiesfrombrowser"] = ("chrome",)
-                logger.info("Attempting to use Chrome cookies")
-            except Exception:
+            # Try browser cookies as fallback
+            browser_found = False
+            for browser in ["chrome", "firefox", "edge", "safari", "brave"]:
                 try:
-                    ydl_opts["cookiesfrombrowser"] = ("firefox",)
-                    logger.info("Attempting to use Firefox cookies")
+                    ydl_opts["cookiesfrombrowser"] = (browser,)
+                    logger.info(f"Using {browser} cookies")
+                    browser_found = True
+                    break
                 except Exception:
-                    logger.warning("No cookies available - some sites may not work")
+                    continue
+
+            if not browser_found:
+                logger.warning("No cookies available - YouTube may block some videos")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -348,15 +353,23 @@ class VideoDownloader:
             "fragment_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
-            "extractor_args": {
-                "instagram": {"skip": ["dash"]}
-            },  # Skip dash for Instagram
+            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
         }
 
-        # Add cookie support
+        # Add cookie support - prioritize cookies.txt file
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+
+        # Use cookies file if it exists
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
+        else:
+            # Try browser cookies as fallback
+            for browser in ["chrome", "firefox", "edge", "safari", "brave"]:
+                try:
+                    ydl_opts["cookiesfrombrowser"] = (browser,)
+                    break
+                except Exception:
+                    continue
 
         # Add postprocessors based on format type
         if format_type == "video":
