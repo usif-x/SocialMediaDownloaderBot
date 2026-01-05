@@ -26,6 +26,16 @@ class VideoDownloader:
         self.download_path = settings.TEMP_DOWNLOAD_PATH
         os.makedirs(self.download_path, exist_ok=True)
 
+        # Get cookies file path - look in project root
+        if os.path.isabs(self.download_path):
+            # Absolute path - go to parent directory
+            self.cookies_file = os.path.join(
+                os.path.dirname(os.path.abspath(self.download_path)), "cookies.txt"
+            )
+        else:
+            # Relative path - use current working directory
+            self.cookies_file = os.path.abspath("cookies.txt")
+
     def get_video_info(self, url: str) -> Optional[Dict]:
         """
         Extract video information without downloading
@@ -41,13 +51,11 @@ class VideoDownloader:
             "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
         }
 
-        # Add cookie support for YouTube - prioritize cookies.txt file
-        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
-
+        # Add cookie support for YouTube - use instance cookies file path
         # Use cookies file if it exists (works in Docker)
-        if os.path.exists(cookies_file):
-            ydl_opts["cookiefile"] = cookies_file
-            logger.info("Using cookies.txt file for authentication")
+        if os.path.exists(self.cookies_file):
+            ydl_opts["cookiefile"] = self.cookies_file
+            logger.info(f"Using cookies file: {self.cookies_file}")
         else:
             # Try browser cookies as fallback
             browser_found = False
@@ -356,12 +364,10 @@ class VideoDownloader:
             "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
         }
 
-        # Add cookie support - prioritize cookies.txt file
-        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
-
+        # Add cookie support - use instance cookies file path
         # Use cookies file if it exists
-        if os.path.exists(cookies_file):
-            ydl_opts["cookiefile"] = cookies_file
+        if os.path.exists(self.cookies_file):
+            ydl_opts["cookiefile"] = self.cookies_file
         else:
             # Try browser cookies as fallback
             for browser in ["chrome", "firefox", "edge", "safari", "brave"]:
