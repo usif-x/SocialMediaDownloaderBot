@@ -13,6 +13,9 @@ ENV/
 # Environment variables
 .env
 
+# # Cookies (contains authentication tokens)
+# cookies.txt
+
 # Downloads directory
 downloads/
 *.mp4

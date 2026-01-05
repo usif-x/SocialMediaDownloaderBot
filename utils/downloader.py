@@ -41,6 +41,23 @@ class VideoDownloader:
             "extractor_args": {"instagram": {"skip": ["dash"]}},
         }
 
+        # Add cookie support for YouTube and other sites
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
+            logger.info("Using cookies file for authentication")
+        else:
+            # Try to use browser cookies (Chrome/Firefox)
+            try:
+                ydl_opts["cookiesfrombrowser"] = ("chrome",)
+                logger.info("Attempting to use Chrome cookies")
+            except Exception:
+                try:
+                    ydl_opts["cookiesfrombrowser"] = ("firefox",)
+                    logger.info("Attempting to use Firefox cookies")
+                except Exception:
+                    logger.warning("No cookies available - some sites may not work")
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -335,6 +352,11 @@ class VideoDownloader:
                 "instagram": {"skip": ["dash"]}
             },  # Skip dash for Instagram
         }
+
+        # Add cookie support
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
         # Add postprocessors based on format type
         if format_type == "video":
