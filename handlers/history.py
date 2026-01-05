@@ -72,10 +72,18 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else (dl.title or "Unknown")
             )
 
+            # Escape markdown special characters in title
+            title = (
+                title.replace("_", "\\_")
+                .replace("*", "\\*")
+                .replace("[", "\\[")
+                .replace("`", "\\`")
+            )
+
             history_text += (
                 f"{i}. {type_icon} *{title}*\n"
                 f"   📅 {date_str} | 💾 {size_str}\n"
-                f"   🔗 /restore\_{dl.id}\n\n"
+                f"   🔗 /restore\\_{dl.id}\n\n"
             )
 
         history_text += "💡 _Use /restore\_ID to get the file again_"
