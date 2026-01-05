@@ -20,6 +20,25 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"User {user.id} sent URL: {url}")
 
+    # Check if URL is from YouTube
+    youtube_patterns = [
+        r"(https?://)?(www\.)?(youtube\.com|youtu\.be)",
+        r"(https?://)?(m\.)?youtube\.com",
+        r"(https?://)?youtube\.com/shorts/",
+    ]
+
+    is_youtube = any(
+        re.search(pattern, url, re.IGNORECASE) for pattern in youtube_patterns
+    )
+
+    if not is_youtube:
+        await update.message.reply_text(
+            "❌ This bot only supports YouTube links.\n\n"
+            "Please send a valid YouTube video URL or use `@vid [search terms]` to search for videos.",
+            parse_mode="Markdown",
+        )
+        return
+
     # Basic URL validation
     url_pattern = re.compile(
         r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
