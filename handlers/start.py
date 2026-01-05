@@ -59,7 +59,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"/help - View all commands and help\n"
         f"/history - View your download history\n"
         f"/restore\\_ID - Restore previous downloads\n\n"
-        f"Just send me a YouTube link! 🚀\n"
+        f"Just send me a YouTube link! 🚀\n\n"
+        f"👨‍💻 *Developer:* @YousseifMuhammed"
     )
 
     await update.message.reply_text(welcome_message, parse_mode="Markdown")
