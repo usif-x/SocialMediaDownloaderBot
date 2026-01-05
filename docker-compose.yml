@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: telegram-downloader-bot
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DATABASE_URL=postgresql://botuser:botpassword@postgres:5432/botdb
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+      - MAX_CONCURRENT_DOWNLOADS=5
+      - DOWNLOAD_TIMEOUT=300
+      - TEMP_DOWNLOAD_PATH=/app/downloads
+    volumes:
+      - downloads:/app/downloads
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: telegram-downloader-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=botuser
+      - POSTGRES_PASSWORD=botpassword
+      - POSTGRES_DB=botdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U botuser -d botdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: telegram-downloader-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  downloads:

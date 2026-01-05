@@ -1,0 +1,6 @@
+python-telegram-bot>=21.0
+yt-dlp>=2024.12
+sqlalchemy>=2.0.25
+psycopg2-binary>=2.9.9
+redis>=5.0
+python-dotenv>=1.0.0
