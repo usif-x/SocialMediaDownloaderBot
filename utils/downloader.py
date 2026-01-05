@@ -48,7 +48,13 @@ class VideoDownloader:
             "no_warnings": True,
             "extract_flat": False,
             "socket_timeout": 30,
-            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["hls"],
+                    "player_client": ["android", "web"],
+                    "player_skip": ["configs"],
+                }
+            },
         }
 
         # Add cookie support for YouTube - use instance cookies file path
@@ -361,7 +367,13 @@ class VideoDownloader:
             "fragment_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
-            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["hls"],
+                    "player_client": ["android", "web"],
+                    "player_skip": ["configs"],
+                }
+            },
         }
 
         # Add cookie support - use instance cookies file path
