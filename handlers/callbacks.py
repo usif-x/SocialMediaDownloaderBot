@@ -117,6 +117,11 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 [InlineKeyboardButton(quality_text, callback_data=callback_data_str)]
             )
 
+        # Add Back button to return to type selection
+        keyboard.append(
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_type_{download_id}")]
+        )
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         icon = (
             "🎬"
@@ -240,3 +245,103 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Retry the download by calling handle_url
         await handle_url(update, context, url=url, existing_message=query.message)
+
+    # Handle back to type selection
+    elif action == "back":
+        if len(callback_data) < 4 or callback_data[1] != "to" or callback_data[2] != "type":
+            await query.answer("❌ Invalid action.")
+            return
+            
+        download_id = int(callback_data[3])
+        user_id = update.effective_user.id
+        
+        # Get video info from cache
+        video_info_str = redis_client.get_video_info(user_id)
+        if video_info_str:
+            video_info = ast.literal_eval(video_info_str)
+        elif f"video_info_{download_id}" in context.user_data:
+            video_info = context.user_data[f"video_info_{download_id}"]
+        else:
+            await query.edit_message_text(
+                "❌ Session expired. Please send the link again."
+            )
+            return
+        
+        # Rebuild type selection keyboard
+        keyboard = []
+        
+        if video_info.get("video_formats"):
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🎬 Video", callback_data=f"type_video_{download_id}"
+                    )
+                ]
+            )
+        
+        if video_info.get("audio_formats"):
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🎵 Audio Only", callback_data=f"type_audio_{download_id}"
+                    )
+                ]
+            )
+        
+        if video_info.get("image_formats"):
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🖼 Image", callback_data=f"type_image_{download_id}"
+                    )
+                ]
+            )
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Rebuild original message
+        has_video = video_info.get("has_video", False)
+        has_image = video_info.get("has_image", False)
+        
+        from utils import format_duration, format_views
+        
+        if has_image and not has_video:
+            info_message = (
+                f"🖼 *Image Information*\n\n"
+                f"📝 *Title:* {video_info['title']}\n"
+                f"👤 *Uploader:* {video_info['uploader']}\n"
+                f"🌐 *Platform:* {video_info['platform']}\n"
+                f"👁 *Views:* {format_views(video_info['views'])}\n\n"
+                f"🎯 *Select Format:*"
+            )
+        else:
+            info_message = (
+                f"📹 *Video Information*\n\n"
+                f"📝 *Title:* {video_info['title']}\n"
+                f"👤 *Uploader:* {video_info['uploader']}\n"
+                f"🌐 *Platform:* {video_info['platform']}\n"
+                f"⏱ *Duration:* {format_duration(video_info['duration'])}\n"
+                f"👁 *Views:* {format_views(video_info['views'])}\n\n"
+                f"🎯 *Select Format Type:*"
+            )
+        
+        # Edit message back to type selection
+        if query.message.photo:
+            try:
+                await query.message.edit_caption(
+                    caption=info_message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+            except:
+                await query.edit_message_text(
+                    info_message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+        else:
+            await query.edit_message_text(
+                info_message,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )

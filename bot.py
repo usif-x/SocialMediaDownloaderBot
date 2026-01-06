@@ -117,6 +117,9 @@ def main():
     application.add_handler(
         CallbackQueryHandler(handle_quality_selection, pattern="^quality_")
     )
+    application.add_handler(
+        CallbackQueryHandler(handle_quality_selection, pattern="^back_to_type_")
+    )
 
     # Add callback query handler for history pagination
     application.add_handler(
