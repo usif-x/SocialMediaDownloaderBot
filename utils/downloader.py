@@ -53,6 +53,13 @@ class VideoDownloader:
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info(f"Using cookies file: {cookies_file}")
+            # Log cookie content for debugging
+            try:
+                with open(cookies_file, 'r') as f:
+                    cookie_content = f.read()
+                    logger.info(f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------")
+            except Exception as e:
+                logger.error(f"Failed to read cookies file for logging: {e}")
         else:
             logger.warning(f"No cookies file found at {cookies_file}")
 
@@ -403,6 +410,13 @@ class VideoDownloader:
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
+            # Log cookie content for debugging
+            try:
+                with open(cookies_file, 'r') as f:
+                    cookie_content = f.read()
+                    logger.info(f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------")
+            except Exception as e:
+                logger.error(f"Failed to read cookies file for logging: {e}")
 
         # Add postprocessors based on format type
         if format_type == "video":

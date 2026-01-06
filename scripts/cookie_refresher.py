@@ -196,6 +196,18 @@ class CookieRefresher:
                 # 4. Atomic Save
                 logger.info(f"Saving cookies to {COOKIES_FILE_PATH}...")
                 
+                # Log existing cookies if file exists
+                if os.path.exists(COOKIES_FILE_PATH):
+                    try:
+                        with open(COOKIES_FILE_PATH, 'r') as f:
+                            existing_content = f.read()
+                            logger.info(f"--- EXISTING COOKIES ({len(existing_content)} chars) ---\n{existing_content}\n-----------------------------------")
+                    except Exception as e:
+                        logger.error(f"Failed to read existing cookies: {e}")
+
+                # Log new cookies
+                logger.info(f"--- NEW COOKIES ({len(netscape_cookies)} chars) ---\n{netscape_cookies}\n-----------------------------------")
+                
                 # Ensure directory exists
                 os.makedirs(os.path.dirname(COOKIES_FILE_PATH), exist_ok=True)
                 
