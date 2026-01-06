@@ -17,6 +17,10 @@ WORKDIR /app
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN playwright install --with-deps chromium
+
+# Install Xvfb for headless display
+RUN apt-get update && apt-get install -y xvfb
 
 # Copy project files
 COPY . .

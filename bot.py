@@ -14,6 +14,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from scripts.cookie_refresher import CookieRefresher
 
 from config import settings
 from database import init_db
@@ -25,6 +27,7 @@ from handlers import (
     history_pagination_callback,
     restore_command,
     start_command,
+    refresh_cookies_command,
 )
 
 # Configure logging
@@ -39,6 +42,17 @@ async def post_init(application: Application):
     logger.info("Initializing database...")
     init_db()
     logger.info("Database initialized successfully")
+
+    # Initialize scheduler
+    scheduler = AsyncIOScheduler()
+    refresher = CookieRefresher()
+    
+    # Schedule refreshing every minute with some jitter if possible, 
+    # but for simplicity using interval.
+    # User asked for "every min" 
+    scheduler.add_job(refresher.refresh, "interval", minutes=1)
+    scheduler.start()
+    logger.info("Scheduler started for cookie refreshing")
 
 
 async def error_handler(update: object, context: object):
@@ -82,6 +96,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("restore", restore_command))
+    application.add_handler(CommandHandler("refresh", refresh_cookies_command))
 
     # Handle /restore_ID pattern - must come before URL handler
     from telegram.ext import MessageHandler
