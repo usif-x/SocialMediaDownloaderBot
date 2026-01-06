@@ -69,7 +69,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"⭐ Best Quality ({best_size_str})",
+                        f"⭐ Auto (Recommended)",
                         callback_data=f"quality_{format_type}_best_none_{download_id}",
                     )
                 ]
@@ -92,14 +92,14 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 size_str = "~"
 
             # Check if can send (Telegram bot limit is 50MB)
-            can_send = (
-                "✅"
+            send_speed = (
+                "🐆"
                 if filesize and filesize <= 50 * 1024 * 1024
-                else ("❌" if filesize and filesize > 50 * 1024 * 1024 else "")
+                else ("🐢" if filesize and filesize > 50 * 1024 * 1024 else "")
             )
 
             # Build quality text with size and status
-            quality_text = f"{fmt['quality']} ({fmt.get('ext', 'jpg').upper()}) {size_str} {can_send}".strip()
+            quality_text = f"{fmt['quality']} ({fmt.get('ext', 'jpg').upper()}) {size_str} {send_speed}".strip()
 
             format_id = fmt.get(
                 "format_id", fmt.get("url", "none")[:50]

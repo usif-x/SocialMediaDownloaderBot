@@ -24,6 +24,17 @@ services:
       - TEMP_DOWNLOAD_PATH=/app/downloads
     volumes:
       - downloads:/app/downloads
+      - cookies:/app/cookies
+      - browser_profile:/app/browser_profile
+
+  cookie_refresher:
+    build: .
+    container_name: telegram-cookie-refresher
+    restart: unless-stopped
+    command: python scripts/cookie_scheduler.py --cookies-file=/app/cookies/cookies.txt --profile-dir=/app/browser_profile --headless
+    volumes:
+      - cookies:/app/cookies
+      - browser_profile:/app/browser_profile
 
   postgres:
     image: postgres:15-alpine
@@ -46,12 +57,14 @@ services:
     container_name: telegram-downloader-redis
     restart: unless-stopped
     volumes:
+  cookies:
+  browser_profile:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
 
 volumes:
   postgres_data:

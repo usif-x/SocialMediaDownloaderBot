@@ -46,7 +46,12 @@ class VideoDownloader:
         }
 
         # Add cookie support for YouTube and other sites
-        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        # Check shared volume first (for Docker/Coolify), then local path
+        cookies_file = (
+            "/app/cookies/cookies.txt"
+            if os.path.exists("/app/cookies/cookies.txt")
+            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        )
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info("Using cookies file for authentication")
@@ -156,8 +161,9 @@ class VideoDownloader:
                                     tbr = fmt.get("tbr") or fmt.get("vbr", 0)
                                     if tbr:
                                         # filesize = (bitrate in bits/sec * duration) / 8
+                                        # Apply 0.7 correction factor for compression efficiency
                                         filesize = int(
-                                            (tbr * 1000 * video_duration) / 8
+                                            (tbr * 1000 * video_duration * 0.7) / 8
                                         )
 
                                 video_formats.append(
@@ -186,7 +192,10 @@ class VideoDownloader:
                                 )
                                 if not filesize and video_duration and abr:
                                     # filesize = (bitrate in bits/sec * duration) / 8
-                                    filesize = int((abr * 1000 * video_duration) / 8)
+                                    # Apply 0.7 correction factor for compression efficiency
+                                    filesize = int(
+                                        (abr * 1000 * video_duration * 0.7) / 8
+                                    )
 
                                 audio_formats.append(
                                     {
@@ -402,7 +411,12 @@ class VideoDownloader:
         }
 
         # Add cookie support
-        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        # Check shared volume first (for Docker/Coolify), then local path
+        cookies_file = (
+            "/app/cookies/cookies.txt"
+            if os.path.exists("/app/cookies/cookies.txt")
+            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        )
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
 
