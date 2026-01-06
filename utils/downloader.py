@@ -39,6 +39,10 @@ class VideoDownloader:
             "extract_flat": False,
             "socket_timeout": 30,
             "extractor_args": {"instagram": {"skip": ["dash"]}},
+            # Add user agent to avoid bot detection
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
         }
 
         # Add cookie support for YouTube and other sites
@@ -371,6 +375,10 @@ class VideoDownloader:
             "extractor_args": {
                 "instagram": {"skip": ["dash"]}
             },  # Skip dash for Instagram
+            # Add user agent to avoid bot detection
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
         }
 
         # Add cookie support
