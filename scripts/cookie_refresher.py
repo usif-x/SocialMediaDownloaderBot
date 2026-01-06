@@ -20,7 +20,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-COOKIES_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../cookies/cookies.txt"))
+# Path must match where downloader.py expects it: /app/cookies.txt (same level as bot.py)
+# The downloader uses: os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+# where download_path is typically /app/downloads, so dirname is /app
+COOKIES_FILE_PATH = "/app/cookies.txt"
 
 class CookieRefresher:
     def __init__(self):
