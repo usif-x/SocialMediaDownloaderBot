@@ -60,7 +60,11 @@ class VideoDownloader:
         )
         if os.path.isfile(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
-            logger.info("Using cookies file for authentication")
+            logger.info(f"Using cookies file: {cookies_file}")
+        else:
+            logger.warning(
+                f"Cookies file not found at {cookies_file} or /app/cookies/cookies.txt"
+            )
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
