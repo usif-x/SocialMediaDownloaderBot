@@ -53,10 +53,12 @@ class VideoDownloader:
         # Add cookie support for YouTube (manual cookies.txt)
         cookies_file = (
             "/app/cookies/cookies.txt"
-            if os.path.exists("/app/cookies/cookies.txt")
-            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+            if os.path.isfile("/app/cookies/cookies.txt")
+            else os.path.join(
+                os.path.dirname(self.download_path), "cookies", "cookies.txt"
+            )
         )
-        if os.path.exists(cookies_file):
+        if os.path.isfile(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info("Using cookies file for authentication")
 
@@ -408,10 +410,12 @@ class VideoDownloader:
         # Add cookie support for YouTube (manual cookies.txt)
         cookies_file = (
             "/app/cookies/cookies.txt"
-            if os.path.exists("/app/cookies/cookies.txt")
-            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+            if os.path.isfile("/app/cookies/cookies.txt")
+            else os.path.join(
+                os.path.dirname(self.download_path), "cookies", "cookies.txt"
+            )
         )
-        if os.path.exists(cookies_file):
+        if os.path.isfile(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
 
         # Add postprocessors based on format type

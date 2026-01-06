@@ -24,7 +24,7 @@ services:
       - TEMP_DOWNLOAD_PATH=/app/downloads
     volumes:
       - downloads:/app/downloads
-      - ./cookies.txt:/app/cookies/cookies.txt:ro
+      - ./cookies:/app/cookies:ro
 
   postgres:
     image: postgres:15-alpine
