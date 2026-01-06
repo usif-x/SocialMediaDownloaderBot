@@ -107,7 +107,6 @@ async def handle_url(
             # Extract YouTube video ID from URL for retry
             # Patterns: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
             video_id = None
-            import re
             patterns = [
                 r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
             ]
