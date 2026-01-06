@@ -11,7 +11,8 @@ A scalable Telegram bot for downloading videos from various social media platfor
 💾 **Database Tracking**: PostgreSQL with SQLAlchemy for tracking users and downloads
 ⚡ **Redis Caching**: Fast state management and caching
 👥 **Multi-user Support**: Handle multiple concurrent users
-🐳 **Docker Ready**: Easy deployment with Docker and Coolify
+� **Large File Support**: Upload files up to 2GB using Telethon (optional)
+�🐳 **Docker Ready**: Easy deployment with Docker and Coolify
 
 ## Project Structure
 
@@ -105,6 +106,21 @@ SocialMediaDownloader/
 python bot.py
 ```
 
+### Large File Support (Optional)
+
+For uploading files larger than 50MB (up to 2GB), set up Telethon:
+
+```bash
+# See detailed setup instructions
+cat docs/TELETHON_SETUP.md
+
+# Quick setup
+python scripts/setup_telethon.py
+```
+
+Without Telethon: Files limited to 50MB  
+With Telethon: Files up to 2GB supported!
+
 ### Using the Bot
 
 1. Start a chat with your bot on Telegram
@@ -137,14 +153,17 @@ The bot supports 1000+ websites including:
 
 ### Environment Variables
 
-| Variable                   | Description                 | Default                               |
-| -------------------------- | --------------------------- | ------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`       | Your Telegram Bot Token     | Required                              |
-| `DATABASE_URL`             | PostgreSQL connection URL   | `postgresql://localhost/telegram_bot` |
-| `REDIS_HOST`               | Redis server host           | `localhost`                           |
-| `REDIS_PORT`               | Redis server port           | `6379`                                |
-| `MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads  | `5`                                   |
-| `DOWNLOAD_TIMEOUT`         | Download timeout in seconds | `300`                                 |
+| Variable                   | Description                      | Default                               |
+| -------------------------- | -------------------------------- | ------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`       | Your Telegram Bot Token          | Required                              |
+| `TELEGRAM_API_ID`          | Telegram API ID (for Telethon)   | Optional (for files >50MB)            |
+| `TELEGRAM_API_HASH`        | Telegram API Hash (for Telethon) | Optional (for files >50MB)            |
+| `TELEGRAM_PHONE`           | Phone number (for Telethon)      | Optional (for files >50MB)            |
+| `DATABASE_URL`             | PostgreSQL connection URL        | `postgresql://localhost/telegram_bot` |
+| `REDIS_HOST`               | Redis server host                | `localhost`                           |
+| `REDIS_PORT`               | Redis server port                | `6379`                                |
+| `MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads       | `5`                                   |
+| `DOWNLOAD_TIMEOUT`         | Download timeout in seconds      | `300`                                 |
 
 ## Database Schema
 

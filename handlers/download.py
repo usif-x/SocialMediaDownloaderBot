@@ -9,7 +9,13 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from database import Download, User, get_db
-from utils import VideoDownloader, format_duration, format_views, redis_client
+from utils import (
+    VideoDownloader,
+    format_duration,
+    format_views,
+    redis_client,
+    telethon_uploader,
+)
 
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -387,37 +393,40 @@ async def download_and_send_video(
 
         file_size = os.path.getsize(file_path)
 
-        # Determine if file should be sent as document
-        # Telegram limits: 50MB for video/audio, 2GB for documents
-        send_as_document = False
-        max_file_size = 2 * 1024 * 1024 * 1024  # 2GB limit for documents
+        # Telegram limits
+        bot_api_limit = 50 * 1024 * 1024  # 50MB for Bot API
+        telethon_limit = 2 * 1024 * 1024 * 1024  # 2GB for Telethon (user client)
 
-        if file_size > max_file_size:
-            await download_msg.edit_text(
-                f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
-                f"Telegram limit is 2GB.\n\n"
-                f"Try selecting a lower quality."
-            )
-            try:
-                os.remove(file_path)
-            except:
-                pass
-            download.status = "failed"
-            download.error_message = f"File too large: {file_size / (1024*1024):.1f}MB"
-            db.commit()
-            return
+        use_telethon = False
 
-        # Send as document if video/audio exceeds 50MB
-        if file_size > 50 * 1024 * 1024 and format_type in ["video", "audio"]:
-            send_as_document = True
+        # If file exceeds Bot API limit, try Telethon
+        if file_size > bot_api_limit:
+            if file_size > telethon_limit:
+                await download_msg.edit_text(
+                    f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
+                    f"Maximum supported size is 2GB.\n\n"
+                    f"Please select a lower quality to reduce file size."
+                )
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+                download.status = "failed"
+                download.error_message = (
+                    f"File too large: {file_size / (1024*1024):.1f}MB"
+                )
+                db.commit()
+                return
+
+            # Try to use Telethon for large files
+            use_telethon = True
             await download_msg.edit_text(
-                f"📤 Uploading large file as document ({file_size / (1024*1024):.1f}MB)...\n"
+                f"📤 Uploading large file ({file_size / (1024*1024):.1f}MB)...\n"
+                f"Using alternative upload method.\n"
                 f"This may take a while..."
             )
 
         caption = f"🎬 {video_info['title']}\n\n💾 Quality: {quality}"
-        if send_as_document:
-            caption = f"📁 {video_info['title']}\n\n💾 Quality: {quality}\n📦 Size: {file_size / (1024*1024):.1f}MB"
 
         # Get performer (channel name) for audio
         performer = video_info.get("uploader", "Unknown Artist")
@@ -449,68 +458,112 @@ async def download_and_send_video(
         sent_message = None
         file_id = None
 
-        with open(file_path, "rb") as media_file:
-            if send_as_document:
-                # Send as document for files > 50MB
-                sent_message = await context.bot.send_document(
-                    chat_id=user_id,
-                    document=media_file,
-                    caption=caption,
-                    read_timeout=300,
-                    write_timeout=300,
-                )
-                if sent_message.document:
-                    file_id = sent_message.document.file_id
-            elif format_type == "audio":
-                # Prepare thumbnail for audio
-                thumbnail_file = None
-                if thumbnail_path and os.path.exists(thumbnail_path):
-                    thumbnail_file = open(thumbnail_path, "rb")
+        # Use Telethon for large files
+        if use_telethon:
+            try:
+                # Progress callback for Telethon upload
+                last_percentage = [0]  # Use list to modify in closure
 
-                try:
-                    sent_message = await context.bot.send_audio(
+                async def telethon_progress(percentage, current, total):
+                    # Update only every 10%
+                    if int(percentage) - last_percentage[0] >= 10:
+                        last_percentage[0] = int(percentage)
+                        try:
+                            await download_msg.edit_text(
+                                f"📤 Uploading large file...\n\n"
+                                f"Progress: {percentage:.1f}%\n"
+                                f"Uploaded: {current / (1024*1024):.1f}MB / {total / (1024*1024):.1f}MB"
+                            )
+                        except:
+                            pass
+
+                # Upload using Telethon
+                success = await telethon_uploader.upload_file(
+                    user_id,
+                    file_path,
+                    caption=caption,
+                    progress_callback=telethon_progress,
+                )
+
+                if not success:
+                    await download_msg.edit_text(
+                        f"❌ Failed to upload large file.\n"
+                        f"Telethon client may not be configured.\n\n"
+                        f"Please select a lower quality (under 50MB)."
+                    )
+                    download.status = "failed"
+                    download.error_message = "Telethon upload failed"
+                    db.commit()
+                    downloader.cleanup_user_files(user_id)
+                    return
+
+                # Mark as sent successfully
+                sent_message = True  # We don't get a message object from Telethon
+
+            except Exception as e:
+                logger.error(f"Telethon upload error: {e}", exc_info=True)
+                await download_msg.edit_text(
+                    f"❌ Failed to upload large file: {str(e)[:100]}\n\n"
+                    f"Please select a lower quality (under 50MB)."
+                )
+                download.status = "failed"
+                download.error_message = str(e)[:200]
+                db.commit()
+                downloader.cleanup_user_files(user_id)
+                return
+        else:
+            # Use Bot API for files under 50MB
+            with open(file_path, "rb") as media_file:
+                if format_type == "audio":
+                    # Prepare thumbnail for audio
+                    thumbnail_file = None
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        thumbnail_file = open(thumbnail_path, "rb")
+
+                    try:
+                        sent_message = await context.bot.send_audio(
+                            chat_id=user_id,
+                            audio=media_file,
+                            thumbnail=thumbnail_file,
+                            caption=caption,
+                            title=video_info["title"],
+                            performer=performer,
+                            duration=video_info.get("duration", 0),
+                            read_timeout=120,
+                            write_timeout=120,
+                        )
+                        if sent_message.audio:
+                            file_id = sent_message.audio.file_id
+                    finally:
+                        # Clean up thumbnail file
+                        if thumbnail_file:
+                            thumbnail_file.close()
+                        if thumbnail_path and os.path.exists(thumbnail_path):
+                            try:
+                                os.remove(thumbnail_path)
+                            except:
+                                pass
+                elif format_type == "image":
+                    sent_message = await context.bot.send_photo(
                         chat_id=user_id,
-                        audio=media_file,
-                        thumbnail=thumbnail_file,
-                        caption=caption,
-                        title=video_info["title"],
-                        performer=performer,
-                        duration=video_info.get("duration", 0),
+                        photo=media_file,
+                        caption=f"🖼 {video_info['title']}",
                         read_timeout=120,
                         write_timeout=120,
                     )
-                    if sent_message.audio:
-                        file_id = sent_message.audio.file_id
-                finally:
-                    # Clean up thumbnail file
-                    if thumbnail_file:
-                        thumbnail_file.close()
-                    if thumbnail_path and os.path.exists(thumbnail_path):
-                        try:
-                            os.remove(thumbnail_path)
-                        except:
-                            pass
-            elif format_type == "image":
-                sent_message = await context.bot.send_photo(
-                    chat_id=user_id,
-                    photo=media_file,
-                    caption=f"🖼 {video_info['title']}",
-                    read_timeout=120,
-                    write_timeout=120,
-                )
-                if sent_message.photo:
-                    file_id = sent_message.photo[-1].file_id
-            else:
-                sent_message = await context.bot.send_video(
-                    chat_id=user_id,
-                    video=media_file,
-                    caption=caption,
-                    supports_streaming=True,
-                    read_timeout=120,
-                    write_timeout=120,
-                )
-                if sent_message.video:
-                    file_id = sent_message.video.file_id
+                    if sent_message.photo:
+                        file_id = sent_message.photo[-1].file_id
+                else:
+                    sent_message = await context.bot.send_video(
+                        chat_id=user_id,
+                        video=media_file,
+                        caption=caption,
+                        supports_streaming=True,
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
+                    if sent_message.video:
+                        file_id = sent_message.video.file_id
 
         # Update download status with message_id and file_id for restore
         download.status = "completed"
