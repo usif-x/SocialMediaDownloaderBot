@@ -77,11 +77,11 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Add specific quality options
         for fmt in formats[:8]:  # Limit to 8 options
-            # Get file size
-            filesize = fmt.get("filesize") or fmt.get("filesize_approx", 0)
+            # Get file size (already combined filesize and filesize_approx in downloader)
+            filesize = fmt.get("filesize", 0)
 
             # Format file size
-            if filesize:
+            if filesize and filesize > 0:
                 if filesize > 1024 * 1024 * 1024:  # GB
                     size_str = f"{filesize / (1024 * 1024 * 1024):.1f}GB"
                 elif filesize > 1024 * 1024:  # MB

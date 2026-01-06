@@ -144,14 +144,23 @@ class VideoDownloader:
                         if fmt_vcodec and fmt_vcodec != "none":
                             height = fmt.get("height")
                             if height and height not in seen_video_qualities:
+                                # Get filesize or estimate from bitrate
+                                filesize = fmt.get("filesize") or fmt.get(
+                                    "filesize_approx"
+                                )
+                                if not filesize and duration:
+                                    # Estimate from bitrate if available
+                                    tbr = fmt.get("tbr") or fmt.get("vbr", 0)
+                                    if tbr:
+                                        # filesize = (bitrate in bits/sec * duration) / 8
+                                        filesize = int((tbr * 1000 * duration) / 8)
+
                                 video_formats.append(
                                     {
                                         "format_id": fmt.get("format_id", "best"),
                                         "quality": f"{height}p",
                                         "ext": fmt.get("ext", "mp4"),
-                                        "filesize": fmt.get("filesize")
-                                        or fmt.get("filesize_approx")
-                                        or 0,
+                                        "filesize": filesize or 0,
                                         "has_audio": fmt_acodec
                                         and fmt_acodec != "none",
                                     }
@@ -617,6 +626,11 @@ class VideoDownloader:
                         os.remove(file_path)
             except Exception as e:
                 logger.error(f"Error cleaning up files: {e}")
+
+    @staticmethod
+    def get_supported_sites() -> List[str]:
+        """Get list of supported sites"""
+        return settings.SUPPORTED_SITES
 
     @staticmethod
     def get_supported_sites() -> List[str]:
