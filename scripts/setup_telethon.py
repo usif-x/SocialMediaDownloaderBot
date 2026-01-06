@@ -274,10 +274,13 @@ async def setup_telethon():
 
             traceback.print_exc()
 
-        # Update .env file
+        # Update .env file (may not work in production environments)
         print("Updating .env file with STORAGE_CHANNEL_ID...")
-        update_env_file("STORAGE_CHANNEL_ID", str(channel_id))
-        print(f"✓ STORAGE_CHANNEL_ID={channel_id} added to .env")
+        try:
+            update_env_file("STORAGE_CHANNEL_ID", str(channel_id))
+            print(f"✓ STORAGE_CHANNEL_ID={channel_id} added to .env locally")
+        except Exception as e:
+            print(f"⚠️  Could not update .env file: {e}")
         print()
 
         print("=" * 60)
@@ -288,12 +291,26 @@ async def setup_telethon():
         print(f"  • Session saved to: {session_path}")
         print(f"  • Storage Channel ID: {channel_id}")
         print(f"  • Channel Name: {channel_title}")
+        if channel_username:
+            print(f"  • Channel Username: @{channel_username}")
         print()
-        print("Your bot can now:")
-        print("  • Upload files up to 2GB")
-        print("  • Send files from the bot (not your account)")
+        print("=" * 60)
+        print("⚠️  IMPORTANT - Add to Environment Variables:")
+        print("=" * 60)
         print()
-        print("🚀 Restart your bot to apply changes!")
+        print("Add this to your environment variables:")
+        print(f"  STORAGE_CHANNEL_ID={channel_id}")
+        print()
+        print("For local development:")
+        print("  • Add to .env file (should be done automatically)")
+        print()
+        print("For production (Coolify/Docker):")
+        print("  1. Go to your deployment settings")
+        print("  2. Add environment variable: STORAGE_CHANNEL_ID")
+        print(f"  3. Set value to: {channel_id}")
+        print("  4. Redeploy the application")
+        print()
+        print("🚀 After adding the variable, restart/redeploy your bot!")
 
     except Exception as e:
         print(f"❌ Error: {e}")
