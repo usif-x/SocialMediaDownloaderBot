@@ -26,16 +26,6 @@ class VideoDownloader:
         self.download_path = settings.TEMP_DOWNLOAD_PATH
         os.makedirs(self.download_path, exist_ok=True)
 
-        # Get cookies file path - look in project root
-        if os.path.isabs(self.download_path):
-            # Absolute path - go to parent directory
-            self.cookies_file = os.path.join(
-                os.path.dirname(os.path.abspath(self.download_path)), "cookies.txt"
-            )
-        else:
-            # Relative path - use current working directory
-            self.cookies_file = os.path.abspath("cookies.txt")
-
     def get_video_info(self, url: str) -> Optional[Dict]:
         """
         Extract video information without downloading
@@ -48,26 +38,25 @@ class VideoDownloader:
             "no_warnings": True,
             "extract_flat": False,
             "socket_timeout": 30,
-            # Use mobile clients to avoid bot detection
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "ios", "web"],
-                    "player_skip": ["webpage"],
-                }
-            },
-            # Spoof user agent to look like a real browser
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-us,en;q=0.5",
-                "Sec-Fetch-Mode": "navigate",
-            },
+            "extractor_args": {"instagram": {"skip": ["dash"]}},
         }
 
-        # Add cookie support if available (optional now)
-        if os.path.exists(self.cookies_file):
-            ydl_opts["cookiefile"] = self.cookies_file
-            logger.info(f"Using cookies file: {self.cookies_file}")
+        # Add cookie support for YouTube and other sites
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
+            logger.info("Using cookies file for authentication")
+        else:
+            # Try to use browser cookies (Chrome/Firefox)
+            try:
+                ydl_opts["cookiesfrombrowser"] = ("chrome",)
+                logger.info("Attempting to use Chrome cookies")
+            except Exception:
+                try:
+                    ydl_opts["cookiesfrombrowser"] = ("firefox",)
+                    logger.info("Attempting to use Firefox cookies")
+                except Exception:
+                    logger.warning("No cookies available - some sites may not work")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -359,25 +348,15 @@ class VideoDownloader:
             "fragment_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
-            # Use mobile clients to avoid bot detection
             "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "ios", "web"],
-                    "player_skip": ["webpage"],
-                }
-            },
-            # Spoof user agent
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-us,en;q=0.5",
-                "Sec-Fetch-Mode": "navigate",
-            },
+                "instagram": {"skip": ["dash"]}
+            },  # Skip dash for Instagram
         }
 
-        # Add cookie support if available (optional now)
-        if os.path.exists(self.cookies_file):
-            ydl_opts["cookiefile"] = self.cookies_file
+        # Add cookie support
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
         # Add postprocessors based on format type
         if format_type == "video":
