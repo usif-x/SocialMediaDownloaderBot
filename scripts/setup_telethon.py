@@ -18,6 +18,7 @@ from telethon.tl.functions.channels import (
     CreateChannelRequest,
     EditAdminRequest,
     InviteToChannelRequest,
+    UpdateUsernameRequest,
 )
 from telethon.tl.types import ChatAdminRights
 
@@ -156,9 +157,19 @@ async def setup_telethon():
         print()
 
         channel_title = "Bot File Storage"
-        channel_about = "Private storage channel for bot large file uploads"
+        channel_about = "Public storage channel for bot large file uploads"
 
-        print(f"Creating private channel: {channel_title}")
+        # Generate random username for public channel
+        import random
+        import string
+
+        random_suffix = "".join(
+            random.choices(string.ascii_lowercase + string.digits, k=8)
+        )
+        channel_username = f"bot_storage_{random_suffix}"
+
+        print(f"Creating public channel: {channel_title}")
+        print(f"Channel username: @{channel_username}")
 
         # Create channel
         result = await client(
@@ -173,6 +184,29 @@ async def setup_telethon():
         channel_id = int(f"-100{channel.id}")
 
         print(f"✓ Channel created! ID: {channel_id}")
+
+        # Make channel public by setting username
+        try:
+            await client(
+                UpdateUsernameRequest(channel=channel, username=channel_username)
+            )
+            print(f"✓ Channel is now public: @{channel_username}")
+        except Exception as e:
+            print(f"⚠️  Could not set username (trying another): {e}")
+            # Try with different username if first one is taken
+            random_suffix = "".join(
+                random.choices(string.ascii_lowercase + string.digits, k=12)
+            )
+            channel_username = f"storage_{random_suffix}"
+            try:
+                await client(
+                    UpdateUsernameRequest(channel=channel, username=channel_username)
+                )
+                print(f"✓ Channel is now public: @{channel_username}")
+            except Exception as e2:
+                print(f"⚠️  Could not make channel public: {e2}")
+                print("You can manually make it public in Telegram settings")
+
         print()
 
         # Get bot entity
@@ -199,8 +233,15 @@ async def setup_telethon():
 
             print(f"✓ Found bot")
 
+            # For public channels, we can invite the bot first, then promote
+            print("  • Inviting bot to public channel...")
+            await client(InviteToChannelRequest(channel=channel, users=[bot]))
+            print("  ✓ Bot invited")
+
+            # Wait a moment for invite to process
+            await asyncio.sleep(1)
+
             # Admin rights for the bot
-            # Bots can be directly promoted to admin without inviting first
             admin_rights = ChatAdminRights(
                 post_messages=True,
                 edit_messages=True,
@@ -213,8 +254,8 @@ async def setup_telethon():
                 change_info=False,
             )
 
-            # Directly promote bot to admin (no need to invite first)
-            print("  • Adding bot as administrator...")
+            # Promote bot to admin
+            print("  • Promoting bot to administrator...")
             await client(
                 EditAdminRequest(
                     channel=channel, user_id=bot, admin_rights=admin_rights, rank="Bot"
@@ -223,11 +264,15 @@ async def setup_telethon():
 
             print(f"✓ Bot added as administrator with full permissions!")
             print()
+            print("📌 Channel is PUBLIC - bot can access all messages")
+            print(f"   Anyone can view: t.me/{channel_username}")
+            print()
 
         except Exception as e:
             print(f"⚠️  Could not add bot automatically: {e}")
             print()
-            print("Please manually:")
+            print("Note: Since channel is public, bot can still read messages.")
+            print("But to post, please manually:")
             print(f"1. Search for the channel: {channel_title}")
             print(f"2. Add your bot (@{bot_username}) as administrator")
             print("3. Give it 'Post Messages' and 'Delete Messages' permissions")
