@@ -233,15 +233,8 @@ async def setup_telethon():
 
             print(f"✓ Found bot")
 
-            # For public channels, we can invite the bot first, then promote
-            print("  • Inviting bot to public channel...")
-            await client(InviteToChannelRequest(channel=channel, users=[bot]))
-            print("  ✓ Bot invited")
-
-            # Wait a moment for invite to process
-            await asyncio.sleep(1)
-
             # Admin rights for the bot
+            # Note: Bots can ONLY be added as admins, not as regular members
             admin_rights = ChatAdminRights(
                 post_messages=True,
                 edit_messages=True,
@@ -254,8 +247,8 @@ async def setup_telethon():
                 change_info=False,
             )
 
-            # Promote bot to admin
-            print("  • Promoting bot to administrator...")
+            # Add bot directly as administrator (bots cannot be invited as regular members)
+            print("  • Adding bot as administrator...")
             await client(
                 EditAdminRequest(
                     channel=channel, user_id=bot, admin_rights=admin_rights, rank="Bot"
