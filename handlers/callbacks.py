@@ -51,10 +51,25 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Add "Best" option (not for images with only one option)
         if format_type != "image" or len(formats) > 1:
+            # Get best quality file size estimate
+            best_fmt = formats[0] if formats else None
+            best_size_str = "~"
+            if best_fmt:
+                filesize = best_fmt.get("filesize") or best_fmt.get(
+                    "filesize_approx", 0
+                )
+                if filesize:
+                    if filesize > 1024 * 1024 * 1024:  # GB
+                        best_size_str = f"{filesize / (1024 * 1024 * 1024):.1f}GB"
+                    elif filesize > 1024 * 1024:  # MB
+                        best_size_str = f"{filesize / (1024 * 1024):.1f}MB"
+                    else:  # KB
+                        best_size_str = f"{filesize / 1024:.0f}KB"
+
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        "⭐ Best Quality",
+                        f"⭐ Best Quality ({best_size_str})",
                         callback_data=f"quality_{format_type}_best_none_{download_id}",
                     )
                 ]
@@ -193,7 +208,14 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Start download
         await download_and_send_video(
-            update, context, download_id, format_type, quality, format_id, user_id
+            update,
+            context,
+            download_id,
+            format_type,
+            quality,
+            format_id,
+            user_id,
+            query.message,
         )
     else:
         await query.edit_message_text("❌ Invalid action. Please try again.")

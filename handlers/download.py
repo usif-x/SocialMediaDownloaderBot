@@ -237,6 +237,7 @@ async def download_and_send_video(
     quality: str,
     format_id: str,
     user_id: int,
+    existing_message=None,
 ):
     """Download and send video to user"""
     logger = logging.getLogger(__name__)
@@ -259,11 +260,27 @@ async def download_and_send_video(
             )
             return
 
-        # Send downloading message
-        download_msg = await context.bot.send_message(
-            chat_id=user_id,
-            text=f"⬇️ Downloading {format_type} in {quality}...\n\nPlease wait, this may take a few moments.",
-        )
+        # Send downloading message or use existing one
+        if existing_message:
+            # Update existing message
+            current_text = existing_message.text or existing_message.caption or ""
+            (
+                await existing_message.edit_text(
+                    f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
+                    parse_mode="Markdown",
+                )
+                if existing_message.text
+                else await existing_message.edit_caption(
+                    f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
+                    parse_mode="Markdown",
+                )
+            )
+            download_msg = existing_message
+        else:
+            download_msg = await context.bot.send_message(
+                chat_id=user_id,
+                text=f"⬇️ Downloading {format_type} in {quality}...\n\nPlease wait, this may take a few moments.",
+            )
 
         # Progress tracking with queue for thread-safe communication
         import queue
