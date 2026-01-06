@@ -63,6 +63,10 @@ class CookieRefresher:
             except subprocess.TimeoutExpired:
                 self.xvfb_process.kill()
             self.xvfb_process = None
+        
+        # Clean up environment variable so next run starts a fresh Xvfb
+        if "DISPLAY" in os.environ:
+            del os.environ["DISPLAY"]
 
     async def refresh(self):
         """Refreshes YouTube cookies"""
