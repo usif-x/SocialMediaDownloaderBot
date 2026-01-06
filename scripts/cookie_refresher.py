@@ -196,32 +196,113 @@ class CookieRefresher:
                     
                     netscape_cookies += f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
 
-                # 4. Atomic Save
-                logger.info(f"Saving cookies to {COOKIES_FILE_PATH}...")
+                # 4. Merge with existing cookies
+                logger.info(f"Merging cookies with existing file: {COOKIES_FILE_PATH}...")
                 
-                # Log existing cookies if file exists
+                # Auth cookies to PRESERVE from existing file (these are from logged-in account)
+                AUTH_COOKIES_TO_PRESERVE = {
+                    "LOGIN_INFO",
+                    "__Secure-3PSID",
+                    "__Secure-3PAPISID", 
+                    "__Secure-1PSID",
+                    "__Secure-1PAPISID",
+                    "__Secure-1PSIDTS",
+                    "__Secure-3PSIDTS",
+                    "__Secure-3PSIDCC",
+                    "__Secure-1PSIDCC",
+                    "SID",
+                    "HSID",
+                    "SSID",
+                    "APISID",
+                    "SAPISID",
+                    "NID",
+                    # Session login info cookies
+                    "ST-sbra4i",
+                    "ST-183jmdn",
+                }
+                
+                # Parse existing cookies from file
+                existing_cookies = {}
                 if os.path.exists(COOKIES_FILE_PATH):
                     try:
                         with open(COOKIES_FILE_PATH, 'r') as f:
                             existing_content = f.read()
                             logger.info(f"--- EXISTING COOKIES ({len(existing_content)} chars) ---\n{existing_content}\n-----------------------------------")
+                            
+                            for line in existing_content.splitlines():
+                                line = line.strip()
+                                if not line or line.startswith('#'):
+                                    continue
+                                parts = line.split('\t')
+                                if len(parts) >= 7:
+                                    cookie_name = parts[5]
+                                    existing_cookies[cookie_name] = {
+                                        'domain': parts[0],
+                                        'include_subdomains': parts[1],
+                                        'path': parts[2],
+                                        'secure': parts[3],
+                                        'expires': parts[4],
+                                        'name': parts[5],
+                                        'value': parts[6],
+                                    }
                     except Exception as e:
                         logger.error(f"Failed to read existing cookies: {e}")
 
-                # Log new cookies
-                logger.info(f"--- NEW COOKIES ({len(netscape_cookies)} chars) ---\n{netscape_cookies}\n-----------------------------------")
+                # Parse new cookies from browser
+                new_cookies = {}
+                for cookie in cookies:
+                    domain = cookie.get('domain', '')
+                    include_subdomains = "TRUE" if domain.startswith('.') else "FALSE"
+                    path = cookie.get('path', '/')
+                    secure = "TRUE" if cookie.get('secure', False) else "FALSE"
+                    expires = int(cookie.get('expires', 0))
+                    if expires == -1:
+                        expires = 0
+                    name = cookie.get('name', '')
+                    value = cookie.get('value', '')
+                    
+                    new_cookies[name] = {
+                        'domain': domain,
+                        'include_subdomains': include_subdomains,
+                        'path': path,
+                        'secure': secure,
+                        'expires': str(expires),
+                        'name': name,
+                        'value': value,
+                    }
+
+                # Merge: Start with existing cookies, then update with new ones (except auth cookies)
+                merged_cookies = existing_cookies.copy()
+                
+                for name, cookie_data in new_cookies.items():
+                    if name in AUTH_COOKIES_TO_PRESERVE:
+                        # Keep the existing auth cookie if it exists
+                        if name in existing_cookies:
+                            logger.info(f"Preserving auth cookie: {name}")
+                            continue
+                    # Update/add non-auth cookies
+                    merged_cookies[name] = cookie_data
+                
+                # Build final Netscape format
+                netscape_cookies = "# Netscape HTTP Cookie File\n# Merged: Auth cookies preserved, session cookies refreshed\n\n"
+                
+                for name, c in merged_cookies.items():
+                    netscape_cookies += f"{c['domain']}\t{c['include_subdomains']}\t{c['path']}\t{c['secure']}\t{c['expires']}\t{c['name']}\t{c['value']}\n"
+
+                # Log merged cookies
+                logger.info(f"--- MERGED COOKIES ({len(netscape_cookies)} chars) ---\n{netscape_cookies}\n-----------------------------------")
                 
                 # Ensure directory exists
-                os.makedirs(os.path.dirname(COOKIES_FILE_PATH), exist_ok=True)
+                os.makedirs(os.path.dirname(COOKIES_FILE_PATH) or '.', exist_ok=True)
                 
                 # Write to temp file first
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.path.dirname(COOKIES_FILE_PATH)) as tmp_file:
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.path.dirname(COOKIES_FILE_PATH) or '.') as tmp_file:
                     tmp_file.write(netscape_cookies)
                     tmp_file_path = tmp_file.name
                 
                 # Atomic move
                 shutil.move(tmp_file_path, COOKIES_FILE_PATH)
-                logger.info("Cookies refreshed and saved successfully.")
+                logger.info("Cookies merged and saved successfully.")
                 return True
 
             except Exception as e:
