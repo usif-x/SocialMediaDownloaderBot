@@ -16,6 +16,9 @@ class Settings:
     TELEGRAM_API_HASH: str = os.getenv("TELEGRAM_API_HASH") or ""
     TELEGRAM_PHONE: str = os.getenv("TELEGRAM_PHONE") or ""
 
+    # Storage Channel for large files
+    STORAGE_CHANNEL_ID: int = int(os.getenv("STORAGE_CHANNEL_ID") or 0)
+
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://localhost/telegram_bot")
 

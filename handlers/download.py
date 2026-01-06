@@ -477,18 +477,21 @@ async def download_and_send_video(
                         except:
                             pass
 
-                # Upload using Telethon (to Saved Messages first)
-                uploaded_message, error_msg = await telethon_uploader.upload_file(
+                # Upload using Telethon (to storage channel)
+                channel_id, message_id = await telethon_uploader.upload_file(
                     user_id,
                     file_path,
                     caption=caption,
                     progress_callback=telethon_progress,
                 )
 
-                if not uploaded_message:
+                if not channel_id or not message_id:
+                    error_msg = (
+                        message_id if isinstance(message_id, str) else "Unknown error"
+                    )
                     await download_msg.edit_text(
                         f"❌ Failed to upload large file: {error_msg}\n\n"
-                        f"Please select a lower quality (under 50MB)."
+                        f"Make sure STORAGE_CHANNEL_ID is set in .env"
                     )
                     download.status = "failed"
                     download.error_message = f"Telethon upload failed: {error_msg}"
@@ -496,26 +499,39 @@ async def download_and_send_video(
                     downloader.cleanup_user_files(user_id)
                     return
 
-                # Now forward the message to the user
+                # Now copy the message from channel to user using Bot API
                 await download_msg.edit_text("📤 Sending file to you...")
 
-                forward_success = await telethon_uploader.forward_to_user(
-                    uploaded_message, user_id
-                )
+                try:
+                    sent_message = await context.bot.copy_message(
+                        chat_id=user_id,
+                        from_chat_id=channel_id,
+                        message_id=message_id,
+                    )
+                    if sent_message and hasattr(sent_message, "video"):
+                        file_id = (
+                            sent_message.video.file_id if sent_message.video else None
+                        )
+                    elif sent_message and hasattr(sent_message, "document"):
+                        file_id = (
+                            sent_message.document.file_id
+                            if sent_message.document
+                            else None
+                        )
 
-                if not forward_success:
+                except Exception as e:
+                    logger.error(f"Failed to copy message from channel: {e}")
                     await download_msg.edit_text(
-                        f"❌ Failed to send file to you.\n"
-                        f"Please make sure you have started a conversation with the account."
+                        f"❌ Failed to send file.\n"
+                        f"Make sure the bot is admin in the storage channel."
                     )
                     download.status = "failed"
-                    download.error_message = "Failed to forward message to user"
+                    download.error_message = f"Failed to copy from channel: {str(e)}"
                     db.commit()
                     downloader.cleanup_user_files(user_id)
                     return
 
-                # Mark as sent successfully
-                sent_message = True  # We don't get a message object from Telethon
+                # Mark as sent successfully - file sent from bot!
 
             except Exception as e:
                 logger.error(f"Telethon upload error: {e}", exc_info=True)

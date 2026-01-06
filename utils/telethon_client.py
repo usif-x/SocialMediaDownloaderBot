@@ -70,16 +70,16 @@ class TelethonUploader:
         progress_callback=None,
     ):
         """
-        Upload a file to Telegram using Telethon and return file_id for bot to use
+        Upload a file to storage channel and return channel/message ID for bot to copy
 
         Args:
-            chat_id: Telegram user/chat ID (used to send to "me" to get file_id)
+            chat_id: Not used anymore, kept for compatibility
             file_path: Path to file to upload
             caption: File caption
             progress_callback: Optional callback for upload progress
 
         Returns:
-            Tuple of (file_id, error_message) - file_id if successful, None and error if failed
+            Tuple of (channel_id, message_id) if successful, (None, error_msg) if failed
         """
         if not self.is_initialized:
             await self.initialize()
@@ -88,11 +88,18 @@ class TelethonUploader:
             logger.error("Telethon client not initialized")
             return None, "Telethon not initialized"
 
+        if not settings.STORAGE_CHANNEL_ID:
+            logger.error("Storage channel not configured")
+            return (
+                None,
+                "Storage channel not configured. Set STORAGE_CHANNEL_ID in .env",
+            )
+
         try:
             # Get file size
             file_size = os.path.getsize(file_path)
             logger.info(
-                f"Uploading file via Telethon to get file_id: {file_size / (1024*1024):.1f}MB"
+                f"Uploading file via Telethon to storage channel: {file_size / (1024*1024):.1f}MB"
             )
 
             # Progress callback wrapper
@@ -101,59 +108,36 @@ class TelethonUploader:
                     percentage = (current / total) * 100 if total > 0 else 0
                     await progress_callback(percentage, current, total)
 
-            # Send file to "me" (Saved Messages) to get file_id
-            # This uploads the file without sending to the user
+            # Get channel entity
+            try:
+                channel = await self.client.get_entity(settings.STORAGE_CHANNEL_ID)
+                logger.info(f"Resolved storage channel: {channel.id}")
+            except Exception as e:
+                logger.error(f"Failed to get storage channel: {e}")
+                return None, f"Failed to access storage channel: {str(e)}"
+
+            # Upload file to the storage channel
             sent_message = await self.client.send_file(
-                "me",  # Send to ourselves (Saved Messages)
+                channel,
                 file_path,
                 caption=caption,
                 progress_callback=progress if progress_callback else None,
             )
 
-            # Extract file_id from the sent message
-            file_id = None
-            if sent_message and sent_message.media:
-                # Get the document (for videos/files)
-                if hasattr(sent_message.media, "document"):
-                    # We need to get the file_id that Bot API can use
-                    # Telethon uses different file references than Bot API
-                    # We'll return the message so bot can forward it
-                    logger.info(
-                        f"File uploaded successfully via Telethon, message_id: {sent_message.id}"
-                    )
-                    return sent_message, None
+            if sent_message:
+                logger.info(
+                    f"File uploaded to channel {settings.STORAGE_CHANNEL_ID}, "
+                    f"message_id: {sent_message.id}"
+                )
+                # Return channel_id and message_id for bot to copy
+                return settings.STORAGE_CHANNEL_ID, sent_message.id
 
-            logger.error("Could not extract file info from uploaded message")
-            return None, "Failed to get file info"
+            logger.error("Upload failed - no message returned")
+            return None, "Upload failed"
 
         except Exception as e:
             logger.error(f"Failed to upload file via Telethon: {e}", exc_info=True)
             return None, str(e)
-
-    async def forward_to_user(self, message, chat_id: int) -> bool:
-        """
-        Forward the uploaded message to user
-
-        Args:
-            message: The message object from upload_file
-            chat_id: Target user chat ID
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            # Get user entity
-            entity = await self.client.get_entity(chat_id)
-
-            # Forward the message
-            await self.client.forward_messages(entity, message)
-
-            logger.info(f"Message forwarded to user {chat_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to forward message: {e}", exc_info=True)
-            return False
 
     async def disconnect(self):
         """Disconnect Telethon client"""
