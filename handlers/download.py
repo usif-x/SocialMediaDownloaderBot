@@ -229,6 +229,26 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+async def safe_edit_message(message, text, parse_mode=None):
+    """Safely edit a message whether it has text or caption"""
+    try:
+        if message.photo or message.video or message.audio or message.document:
+            # Message has media, edit caption
+            await message.edit_caption(caption=text, parse_mode=parse_mode)
+        else:
+            # Text-only message
+            await message.edit_text(text, parse_mode=parse_mode)
+    except Exception as e:
+        # If edit fails, try the other method as fallback
+        try:
+            if message.text:
+                await message.edit_text(text, parse_mode=parse_mode)
+            else:
+                await message.edit_caption(caption=text, parse_mode=parse_mode)
+        except:
+            pass  # Ignore if both fail
+
+
 async def download_and_send_video(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -264,16 +284,10 @@ async def download_and_send_video(
         if existing_message:
             # Update existing message
             current_text = existing_message.text or existing_message.caption or ""
-            (
-                await existing_message.edit_text(
-                    f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
-                    parse_mode="Markdown",
-                )
-                if existing_message.text
-                else await existing_message.edit_caption(
-                    f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
-                    parse_mode="Markdown",
-                )
+            await safe_edit_message(
+                existing_message,
+                f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
+                parse_mode="Markdown",
             )
             download_msg = existing_message
         else:
@@ -298,7 +312,7 @@ async def download_and_send_video(
                     text = progress_queue.get(timeout=0.5)
                     if text and text != last_text:
                         try:
-                            await download_msg.edit_text(text)
+                            await safe_edit_message(download_msg, text)
                             last_text = text
                         except Exception:
                             pass
@@ -337,13 +351,13 @@ async def download_and_send_video(
                 image_url = image_formats[0].get("url") if image_formats else None
 
             if not image_url:
-                await download_msg.edit_text("❌ Image URL not found")
+                await safe_edit_message(download_msg, "❌ Image URL not found")
                 download.status = "failed"
                 download.error_message = "Image URL not found"
                 db.commit()
                 return
 
-            await download_msg.edit_text("⬇️ Downloading image...")
+            await safe_edit_message(download_msg, "⬇️ Downloading image...")
 
             loop = asyncio.get_event_loop()
             file_path, error_msg = await loop.run_in_executor(
@@ -359,7 +373,7 @@ async def download_and_send_video(
                 download.status = "failed"
                 download.error_message = error_msg or "Download failed"
                 db.commit()
-                await download_msg.edit_text(
+                await safe_edit_message(download_msg, 
                     f"❌ Download failed: {error_msg or 'Unknown error'}"
                 )
                 downloader.cleanup_user_files(user_id)
@@ -395,7 +409,7 @@ async def download_and_send_video(
                 download.status = "failed"
                 download.error_message = error_msg or "Download failed"
                 db.commit()
-                await download_msg.edit_text(
+                await safe_edit_message(download_msg, 
                     f"❌ Download failed: {error_msg or 'Unknown error'}"
                 )
                 # Clean up any leftover files
@@ -403,7 +417,7 @@ async def download_and_send_video(
                 return
 
         # Send video or audio
-        await download_msg.edit_text("📤 Uploading...")
+        await safe_edit_message(download_msg, "📤 Uploading...")
 
         # Check file size
         import os
@@ -419,7 +433,7 @@ async def download_and_send_video(
         # If file exceeds Bot API limit, try Telethon
         if file_size > bot_api_limit:
             if file_size > telethon_limit:
-                await download_msg.edit_text(
+                await safe_edit_message(download_msg, 
                     f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
                     f"Maximum supported size is 2GB.\n\n"
                     f"Please select a lower quality to reduce file size."
@@ -437,7 +451,7 @@ async def download_and_send_video(
 
             # Try to use Telethon for large files
             use_telethon = True
-            await download_msg.edit_text(
+            await safe_edit_message(download_msg, 
                 f"📤 Uploading large file ({file_size / (1024*1024):.1f}MB)...\n"
                 f"Using alternative upload method.\n"
                 f"This may take a while..."
@@ -487,7 +501,7 @@ async def download_and_send_video(
                     if int(percentage) - last_percentage[0] >= 10:
                         last_percentage[0] = int(percentage)
                         try:
-                            await download_msg.edit_text(
+                            await safe_edit_message(download_msg, 
                                 f"📤 Uploading large file...\n\n"
                                 f"Progress: {percentage:.1f}%\n"
                                 f"Uploaded: {current / (1024*1024):.1f}MB / {total / (1024*1024):.1f}MB"
@@ -524,7 +538,7 @@ async def download_and_send_video(
                     error_msg = (
                         message_id if isinstance(message_id, str) else "Unknown error"
                     )
-                    await download_msg.edit_text(
+                    await safe_edit_message(download_msg, 
                         f"❌ Failed to upload large file: {error_msg}\n\n"
                         f"Make sure STORAGE_CHANNEL_ID is set in .env"
                     )
@@ -535,7 +549,7 @@ async def download_and_send_video(
                     return
 
                 # Now copy the message from channel to user using Bot API
-                await download_msg.edit_text("📤 Sending file to you...")
+                await safe_edit_message(download_msg, "📤 Sending file to you...")
 
                 try:
                     sent_message = await context.bot.copy_message(
@@ -556,7 +570,7 @@ async def download_and_send_video(
 
                 except Exception as e:
                     logger.error(f"Failed to copy message from channel: {e}")
-                    await download_msg.edit_text(
+                    await safe_edit_message(download_msg, 
                         f"❌ Failed to send file.\n"
                         f"Make sure the bot is admin in the storage channel."
                     )
@@ -570,7 +584,7 @@ async def download_and_send_video(
 
             except Exception as e:
                 logger.error(f"Telethon upload error: {e}", exc_info=True)
-                await download_msg.edit_text(
+                await safe_edit_message(download_msg, 
                     f"❌ Failed to upload large file: {str(e)[:100]}\n\n"
                     f"Please select a lower quality (under 50MB)."
                 )
@@ -665,7 +679,7 @@ async def download_and_send_video(
             else ("🖼" if format_type == "image" else "🎵")
         )
         try:
-            await download_msg.edit_text(
+            await safe_edit_message(download_msg, 
                 f"✅ *Downloaded Successfully!*\n\n"
                 f"{icon} *Format:* {format_type.title()}\n"
                 f"📊 *Quality:* {quality}\n"
