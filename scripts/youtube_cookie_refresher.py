@@ -178,18 +178,45 @@ class YouTubeCookieRefresher:
                 # Random scrolling
                 await self.scroll_page(page)
 
-                # Maybe click on a random video (just hover, don't actually click)
+                # Visit an actual video to trigger VISITOR_INFO1_LIVE cookie
+                logger.info("Opening a video to generate more cookies...")
                 try:
-                    videos = await page.query_selector_all("ytd-video-renderer")
+                    # Find and click a video
+                    videos = await page.query_selector_all(
+                        "ytd-video-renderer a#thumbnail"
+                    )
                     if videos and len(videos) > 0:
-                        random_video = random.choice(videos[:10])
-                        await random_video.hover()
-                        await self.random_delay(0.5, 1.5)
-                except Exception as e:
-                    logger.warning(f"Video hover failed: {e}")
+                        # Click on first video
+                        video_link = await videos[0].get_attribute("href")
+                        if video_link:
+                            full_url = (
+                                f"https://www.youtube.com{video_link}"
+                                if video_link.startswith("/")
+                                else video_link
+                            )
+                            logger.info(f"Visiting video page: {full_url[:50]}...")
+                            await page.goto(full_url, wait_until="domcontentloaded")
 
-                # Another scroll
+                            # Wait for video player to load
+                            await self.random_delay(3, 5)
+
+                            # Scroll on video page
+                            await self.scroll_page(page)
+                            await self.random_delay(2, 3)
+
+                            logger.info("Video page visited successfully")
+                except Exception as e:
+                    logger.warning(f"Video visit failed: {e}")
+
+                # Go back to homepage to get final cookies
+                await page.goto(
+                    "https://www.youtube.com", wait_until="domcontentloaded"
+                )
+                await self.random_delay(1, 2)
+
+                # Final scroll on homepage
                 await self.scroll_page(page)
+                await self.random_delay(1, 2)
 
                 # Final delay before extracting cookies
                 await self.random_delay(1, 3)
