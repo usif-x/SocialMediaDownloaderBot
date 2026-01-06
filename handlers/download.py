@@ -571,8 +571,10 @@ async def download_and_send_video(
         download.format_type = format_type
         download.file_size = file_size
         download.completed_at = datetime.utcnow()
-        if sent_message:
-            download.message_id = sent_message.message_id
+        # Only set message_id and file_id if sent via Bot API (not Telethon)
+        if sent_message and not use_telethon:
+            if hasattr(sent_message, "message_id"):
+                download.message_id = sent_message.message_id
         if file_id:
             download.file_id = file_id
         db.commit()
