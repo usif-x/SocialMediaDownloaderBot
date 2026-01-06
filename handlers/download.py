@@ -387,11 +387,15 @@ async def download_and_send_video(
 
         file_size = os.path.getsize(file_path)
 
-        # Telegram file size limit is 50MB for bots
-        if file_size > 50 * 1024 * 1024:
+        # Determine if file should be sent as document
+        # Telegram limits: 50MB for video/audio, 2GB for documents
+        send_as_document = False
+        max_file_size = 2 * 1024 * 1024 * 1024  # 2GB limit for documents
+
+        if file_size > max_file_size:
             await download_msg.edit_text(
                 f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
-                f"Telegram bot limit is 50MB.\n\n"
+                f"Telegram limit is 2GB.\n\n"
                 f"Try selecting a lower quality."
             )
             try:
@@ -403,7 +407,17 @@ async def download_and_send_video(
             db.commit()
             return
 
+        # Send as document if video/audio exceeds 50MB
+        if file_size > 50 * 1024 * 1024 and format_type in ["video", "audio"]:
+            send_as_document = True
+            await download_msg.edit_text(
+                f"📤 Uploading large file as document ({file_size / (1024*1024):.1f}MB)...\n"
+                f"This may take a while..."
+            )
+
         caption = f"🎬 {video_info['title']}\n\n💾 Quality: {quality}"
+        if send_as_document:
+            caption = f"📁 {video_info['title']}\n\n💾 Quality: {quality}\n📦 Size: {file_size / (1024*1024):.1f}MB"
 
         # Get performer (channel name) for audio
         performer = video_info.get("uploader", "Unknown Artist")
@@ -436,7 +450,18 @@ async def download_and_send_video(
         file_id = None
 
         with open(file_path, "rb") as media_file:
-            if format_type == "audio":
+            if send_as_document:
+                # Send as document for files > 50MB
+                sent_message = await context.bot.send_document(
+                    chat_id=user_id,
+                    document=media_file,
+                    caption=caption,
+                    read_timeout=300,
+                    write_timeout=300,
+                )
+                if sent_message.document:
+                    file_id = sent_message.document.file_id
+            elif format_type == "audio":
                 # Prepare thumbnail for audio
                 thumbnail_file = None
                 if thumbnail_path and os.path.exists(thumbnail_path):

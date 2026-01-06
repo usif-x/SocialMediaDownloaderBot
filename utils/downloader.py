@@ -328,13 +328,33 @@ class VideoDownloader:
         # Clean filename template
         output_template = os.path.join(user_path, "%(title).100s.%(ext)s")
 
-        # Configure format string based on type
+        # Configure format string based on type and quality selection
         if format_type == "audio":
-            format_string = "bestaudio/best"
+            # For audio, use format_id if provided, otherwise best
+            if format_id and format_id != "best" and format_id != "bestaudio":
+                format_string = f"{format_id}/bestaudio/best"
+            else:
+                format_string = "bestaudio/best"
         else:
-            # For video, use multiple fallback options for compatibility
-            # This handles Instagram and other platforms better
-            format_string = "bestvideo+bestaudio/bestvideo*+bestaudio/best/bv*+ba/b"
+            # For video, use format_id if provided to get specific quality
+            if format_id and format_id != "best":
+                # Use the specific format ID and merge with best audio
+                # Format: specified_video+bestaudio/specified_video/fallback
+                format_string = (
+                    f"{format_id}+bestaudio/{format_id}/bestvideo+bestaudio/best"
+                )
+            elif quality and quality != "best" and quality != "Best":
+                # If quality is specified (e.g., "720p", "480p") but no format_id
+                # Extract height from quality string
+                quality_height = quality.replace("p", "")
+                if quality_height.isdigit():
+                    # Select video with specific height and merge with best audio
+                    format_string = f"bestvideo[height<={quality_height}]+bestaudio/best[height<={quality_height}]"
+                else:
+                    format_string = "bestvideo+bestaudio/best"
+            else:
+                # Default: best quality with audio
+                format_string = "bestvideo+bestaudio/best"
 
         ydl_opts = {
             "format": format_string,
@@ -543,6 +563,7 @@ class VideoDownloader:
 
                 # Format ETA
                 if eta > 0:
+                    eta = int(eta)  # Convert to integer to avoid decimals
                     if eta >= 3600:
                         eta_str = f"{eta // 3600}h {(eta % 3600) // 60}m"
                     elif eta >= 60:
