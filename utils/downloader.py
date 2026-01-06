@@ -38,10 +38,14 @@ class VideoDownloader:
             "no_warnings": True,
             "extract_flat": False,
             "socket_timeout": 30,
-            "extractor_args": {"instagram": {"skip": ["dash"]}},
+            "extractor_args": {
+                "instagram": {"skip": ["dash"]},
+                # Use multiple player clients to avoid bot detection
+                "youtube": {"player_client": ["mweb", "android", "ios"]},
+            },
             # Add user agent to avoid bot detection
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
             },
         }
 
@@ -56,16 +60,7 @@ class VideoDownloader:
             ydl_opts["cookiefile"] = cookies_file
             logger.info("Using cookies file for authentication")
         else:
-            # Try to use browser cookies (Chrome/Firefox)
-            try:
-                ydl_opts["cookiesfrombrowser"] = ("chrome",)
-                logger.info("Attempting to use Chrome cookies")
-            except Exception:
-                try:
-                    ydl_opts["cookiesfrombrowser"] = ("firefox",)
-                    logger.info("Attempting to use Firefox cookies")
-                except Exception:
-                    logger.warning("No cookies available - some sites may not work")
+            logger.warning("No cookies available - YouTube may block requests")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -402,11 +397,13 @@ class VideoDownloader:
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
             "extractor_args": {
-                "instagram": {"skip": ["dash"]}
-            },  # Skip dash for Instagram
-            # Add user agent to avoid bot detection
+                "instagram": {"skip": ["dash"]},
+                # Use multiple player clients to avoid bot detection
+                "youtube": {"player_client": ["mweb", "android", "ios"]},
+            },
+            # Add user agent to avoid bot detection (mobile user agent)
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
             },
         }
 
