@@ -132,6 +132,9 @@ class VideoDownloader:
                 audio_formats = []
                 image_formats = []
 
+                # Get duration for filesize estimation
+                video_duration = info.get("duration") or 0
+
                 if "formats" in info and info["formats"]:
                     seen_video_qualities = set()
                     seen_audio_qualities = set()
@@ -148,12 +151,14 @@ class VideoDownloader:
                                 filesize = fmt.get("filesize") or fmt.get(
                                     "filesize_approx"
                                 )
-                                if not filesize and duration:
+                                if not filesize and video_duration:
                                     # Estimate from bitrate if available
                                     tbr = fmt.get("tbr") or fmt.get("vbr", 0)
                                     if tbr:
                                         # filesize = (bitrate in bits/sec * duration) / 8
-                                        filesize = int((tbr * 1000 * duration) / 8)
+                                        filesize = int(
+                                            (tbr * 1000 * video_duration) / 8
+                                        )
 
                                 video_formats.append(
                                     {
@@ -175,14 +180,20 @@ class VideoDownloader:
                         ):
                             abr = fmt.get("abr") or fmt.get("tbr") or 0
                             if abr and int(abr) not in seen_audio_qualities:
+                                # Get filesize or estimate from bitrate
+                                filesize = fmt.get("filesize") or fmt.get(
+                                    "filesize_approx"
+                                )
+                                if not filesize and video_duration and abr:
+                                    # filesize = (bitrate in bits/sec * duration) / 8
+                                    filesize = int((abr * 1000 * video_duration) / 8)
+
                                 audio_formats.append(
                                     {
                                         "format_id": fmt.get("format_id", "bestaudio"),
                                         "quality": f"{int(abr)}kbps",
                                         "ext": fmt.get("ext", "m4a"),
-                                        "filesize": fmt.get("filesize")
-                                        or fmt.get("filesize_approx")
-                                        or 0,
+                                        "filesize": filesize or 0,
                                     }
                                 )
                                 seen_audio_qualities.add(int(abr))
