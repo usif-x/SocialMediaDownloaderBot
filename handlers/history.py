@@ -163,8 +163,8 @@ async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if we have file_id to resend
         if not download.file_id:
             await update.message.reply_text(
-                "❌ This file is no longer available for restore.\n"
-                "The file was downloaded before the restore feature was added.\n\n"
+                "❌ Sorry, this file can’t be restored.\n"
+                "The file exceeds the 50 MB limit and cannot be restored.\n\n"
                 f"🔗 Original URL: {download.url}\n"
                 "You can send this URL again to download."
             )
