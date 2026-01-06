@@ -50,21 +50,13 @@ class VideoDownloader:
             },
         }
 
-        # Add cookie support for YouTube (manual cookies.txt)
-        cookies_file = (
-            "/app/cookies/cookies.txt"
-            if os.path.isfile("/app/cookies/cookies.txt")
-            else os.path.join(
-                os.path.dirname(self.download_path), "cookies", "cookies.txt"
-            )
-        )
-        if os.path.isfile(cookies_file):
+        # Add cookie support for YouTube and other sites
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info(f"Using cookies file: {cookies_file}")
         else:
-            logger.warning(
-                f"Cookies file not found at {cookies_file} or /app/cookies/cookies.txt"
-            )
+            logger.warning(f"No cookies file found at {cookies_file}")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -411,15 +403,9 @@ class VideoDownloader:
             },
         }
 
-        # Add cookie support for YouTube (manual cookies.txt)
-        cookies_file = (
-            "/app/cookies/cookies.txt"
-            if os.path.isfile("/app/cookies/cookies.txt")
-            else os.path.join(
-                os.path.dirname(self.download_path), "cookies", "cookies.txt"
-            )
-        )
-        if os.path.isfile(cookies_file):
+        # Add cookie support
+        cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
+        if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
 
         # Add postprocessors based on format type
