@@ -115,29 +115,52 @@ class CookieRefresher:
                 except Exception:
                     pass
 
-                # 2. Random Interactions
+                # 3. Random Interactions
                 # Scroll a bit
                 logger.info("Scrolling...")
                 await page.mouse.wheel(0, random.randint(500, 2000))
                 await asyncio.sleep(random.uniform(2, 5))
 
-                # Click on a video
+                # Click on a video or visit a random one
                 logger.info("Looking for a video to watch...")
+                
+                # List of fallback videos (popular/safe content) to ensure we always watch something
+                fallback_videos = [
+                    "https://www.youtube.com/watch?v=jNQXAC9IVRw", # Me at the zoo
+                    "https://www.youtube.com/watch?v=LXb3EKWsInQ", # Costa Rica 4K
+                    "https://www.youtube.com/watch?v=9bZkp7q19f0", # PSY - GANGNAM STYLE
+                    "https://www.youtube.com/watch?v=kJQP7kiw5Fk", # Despacito
+                    "https://www.youtube.com/watch?v=JGwWNGJdvx8", # Ed Sheeran - Shape of You
+                    "https://www.youtube.com/watch?v=aqz-KE-bpKQ", # Big Buck Bunny 60fps 4K
+                ]
+
                 video_thumbnails = await page.locator("ytd-rich-grid-media").all()
-                if video_thumbnails:
-                    video = random.choice(video_thumbnails[:5]) # Pick one of the first few
-                    await video.click()
-                    
-                    logger.info("Watching video...")
-                    # Watch for 10-30 seconds
-                    watch_duration = random.uniform(10, 30)
-                    await asyncio.sleep(watch_duration)
-                    
-                    # Scroll down to comments maybe
-                    await page.mouse.wheel(0, 500)
-                    await asyncio.sleep(2)
+                
+                # 50% chance to just go to a direct link anyway, or if no thumbnails found
+                if not video_thumbnails or random.random() > 0.5:
+                    logger.info("Navigating to a random fallback video...")
+                    video_url = random.choice(fallback_videos)
+                    await page.goto(video_url, timeout=60000)
+                    await page.wait_for_load_state("networkidle")
                 else:
-                    logger.warning("No videos found on homepage.")
+                    logger.info("Clicking a homepage video...")
+                    video = random.choice(video_thumbnails[:5]) # Pick one of the first few
+                    
+                    # Ensure it's clickable
+                    if await video.is_visible():
+                        await video.click()
+                    else:
+                        logger.warning("Homepage video not visible, using fallback.")
+                        await page.goto(random.choice(fallback_videos))
+
+                logger.info("Watching video...")
+                # Watch for 10-30 seconds
+                watch_duration = random.uniform(10, 30)
+                await asyncio.sleep(watch_duration)
+                
+                # Scroll down to comments maybe
+                await page.mouse.wheel(0, 500)
+                await asyncio.sleep(2)
 
                 # 3. Export All Cookies
                 logger.info("Exporting all cookies...")
