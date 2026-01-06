@@ -195,18 +195,18 @@ class YouTubeCookieRefresher:
                                 else video_link
                             )
                             logger.info(f"Visiting video page: {full_url[:50]}...")
-                            await page.goto(full_url, wait_until="domcontentloaded")
 
-                            # Wait for video player to load
-                            await self.random_delay(3, 5)
+                            # Use domcontentloaded instead of networkidle to avoid detection
+                            await page.goto(
+                                full_url, wait_until="domcontentloaded", timeout=15000
+                            )
 
-                            # Scroll on video page
-                            await self.scroll_page(page)
+                            # Shorter wait to reduce detection
                             await self.random_delay(2, 3)
 
                             logger.info("Video page visited successfully")
                 except Exception as e:
-                    logger.warning(f"Video visit failed: {e}")
+                    logger.warning(f"Video visit failed: {e}, continuing anyway...")
 
                 # Go back to homepage to get final cookies
                 await page.goto(
@@ -248,8 +248,16 @@ class YouTubeCookieRefresher:
                 cookie_names = [c.get("name", "unknown") for c in youtube_cookies]
                 logger.info(f"Cookie names: {', '.join(cookie_names)}")
 
-                if not youtube_cookies:
-                    logger.warning("No cookies found!")
+                # Check for essential cookies (at least one should be present)
+                essential_cookies = ["VISITOR_INFO1_LIVE", "YSC", "PREF", "SOCS"]
+                has_essential = any(
+                    c.get("name") in essential_cookies for c in youtube_cookies
+                )
+
+                if not youtube_cookies or not has_essential:
+                    logger.warning(
+                        "No essential cookies found! Keeping existing cookies."
+                    )
                     await context.close()
                     return False
 
@@ -259,7 +267,7 @@ class YouTubeCookieRefresher:
                 # Save cookies atomically
                 self.save_cookies_atomic(netscape_cookies)
 
-                logger.info(f"Cookies saved to {self.cookies_file}")
+                logger.info(f"✅ Cookies saved to {self.cookies_file}")
 
                 # Close browser
                 await context.close()

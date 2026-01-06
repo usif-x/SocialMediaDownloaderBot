@@ -105,8 +105,6 @@ async def handle_url(
             db.commit()
 
             # Add retry button
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
             keyboard = [
                 [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_{url}")]
             ]
