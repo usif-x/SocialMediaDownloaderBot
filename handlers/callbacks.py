@@ -220,8 +220,8 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
     # Handle retry button
     elif action == "retry":
-        # Get user ID from callback data
-        retry_user_id = callback_data[1]
+        # Get user ID from the user who clicked (more reliable than callback_data)
+        retry_user_id = query.from_user.id
 
         # Get URL from context
         url = context.user_data.get(f"retry_url_{retry_user_id}")

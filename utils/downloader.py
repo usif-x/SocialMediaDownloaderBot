@@ -41,12 +41,10 @@ class VideoDownloader:
             "skip_download": True,
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
-                # Use android/ios player clients combined with cookies for best results
-                "youtube": {"player_client": ["android", "ios", "mweb"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
         }
 
@@ -394,12 +392,10 @@ class VideoDownloader:
             "progress_hooks": [self._progress_hook],
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
-                # Use android/ios player clients combined with cookies for best results
-                "youtube": {"player_client": ["android", "ios", "mweb"]},
             },
-            # Add user agent to avoid bot detection (mobile user agent)
+            # Add user agent to avoid bot detection
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
         }
 
