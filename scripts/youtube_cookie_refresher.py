@@ -176,7 +176,7 @@ class YouTubeCookieRefresher:
                     logger.warning(f"Video hover failed: {e}")
 
                 # Another scroll
-                await self.scroll_page()
+                await self.scroll_page(page)
 
                 # Final delay before extracting cookies
                 await self.random_delay(1, 3)
