@@ -38,29 +38,18 @@ class VideoDownloader:
             "no_warnings": True,
             "extract_flat": False,
             "socket_timeout": 30,
+            "skip_download": True,
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
-                # Use multiple player clients to avoid bot detection
-                "youtube": {"player_client": ["mweb", "android", "ios"]},
+                # Use android/ios player clients to bypass bot detection (no cookies needed)
+                # "web" client often requires authentication, so we use mobile clients
+                "youtube": {"player_client": ["android", "ios", "mweb"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
             },
         }
-
-        # Add cookie support for YouTube and other sites
-        # Check shared volume first (for Docker/Coolify), then local path
-        cookies_file = (
-            "/app/cookies/cookies.txt"
-            if os.path.exists("/app/cookies/cookies.txt")
-            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
-        )
-        if os.path.exists(cookies_file):
-            ydl_opts["cookiefile"] = cookies_file
-            logger.info("Using cookies file for authentication")
-        else:
-            logger.warning("No cookies available - YouTube may block requests")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -398,24 +387,15 @@ class VideoDownloader:
             "progress_hooks": [self._progress_hook],
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
-                # Use multiple player clients to avoid bot detection
-                "youtube": {"player_client": ["mweb", "android", "ios"]},
+                # Use android/ios player clients to bypass bot detection (no cookies needed)
+                # "web" client often requires authentication, so we use mobile clients
+                "youtube": {"player_client": ["android", "ios", "mweb"]},
             },
             # Add user agent to avoid bot detection (mobile user agent)
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
             },
         }
-
-        # Add cookie support
-        # Check shared volume first (for Docker/Coolify), then local path
-        cookies_file = (
-            "/app/cookies/cookies.txt"
-            if os.path.exists("/app/cookies/cookies.txt")
-            else os.path.join(os.path.dirname(self.download_path), "cookies.txt")
-        )
-        if os.path.exists(cookies_file):
-            ydl_opts["cookiefile"] = cookies_file
 
         # Add postprocessors based on format type
         if format_type == "video":

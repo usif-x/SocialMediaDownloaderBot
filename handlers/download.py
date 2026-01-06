@@ -104,9 +104,12 @@ async def handle_url(
             download.error_message = "Failed to extract video information"
             db.commit()
 
-            # Add retry button
+            # Store URL for retry (callback_data has 64 byte limit)
+            context.user_data[f"retry_url_{user.id}"] = url
+
+            # Add retry button with short callback data
             keyboard = [
-                [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_{url}")]
+                [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_{user.id}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 

@@ -220,8 +220,18 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
     # Handle retry button
     elif action == "retry":
-        # Extract URL from callback data
-        url = "_".join(callback_data[1:])  # Rejoin in case URL has underscores
+        # Get user ID from callback data
+        retry_user_id = callback_data[1]
+
+        # Get URL from context
+        url = context.user_data.get(f"retry_url_{retry_user_id}")
+
+        if not url:
+            await query.answer("❌ Session expired. Please send the link again.")
+            await query.edit_message_text(
+                "❌ Session expired. Please send the link again."
+            )
+            return
 
         await query.answer("🔄 Retrying...")
 
