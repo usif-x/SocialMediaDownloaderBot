@@ -12,9 +12,9 @@ class Settings:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
     # Telegram User Client (for large file uploads)
-    TELEGRAM_API_ID: int = int(os.getenv("TELEGRAM_API_ID", 0))
-    TELEGRAM_API_HASH: str = os.getenv("TELEGRAM_API_HASH", "")
-    TELEGRAM_PHONE: str = os.getenv("TELEGRAM_PHONE", "")
+    TELEGRAM_API_ID: int = int(os.getenv("TELEGRAM_API_ID") or 0)
+    TELEGRAM_API_HASH: str = os.getenv("TELEGRAM_API_HASH") or ""
+    TELEGRAM_PHONE: str = os.getenv("TELEGRAM_PHONE") or ""
 
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://localhost/telegram_bot")
