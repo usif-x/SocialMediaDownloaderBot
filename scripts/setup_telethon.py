@@ -14,7 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.channels import CreateChannelRequest, EditAdminRequest
+from telethon.tl.functions.channels import (
+    CreateChannelRequest,
+    EditAdminRequest,
+    InviteToChannelRequest,
+)
 from telethon.tl.types import ChatAdminRights
 
 from config.settings import settings
@@ -176,8 +180,32 @@ async def setup_telethon():
         bot_username = settings.TELEGRAM_BOT_TOKEN.split(":")[0]
 
         try:
-            # Get bot entity
-            bot = await client.get_entity(f"@{bot_username}")
+            # Get bot entity by username
+            try:
+                bot = await client.get_entity(f"@{bot_username}")
+            except:
+                # If bot username doesn't work, try getting by ID
+                import requests
+
+                response = requests.get(
+                    f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getMe"
+                )
+                bot_info = response.json()
+                if bot_info.get("ok"):
+                    bot_id = bot_info["result"]["id"]
+                    bot = await client.get_input_entity(bot_id)
+                else:
+                    raise Exception("Could not get bot information")
+
+            print(f"✓ Found bot")
+
+            # First, invite bot to the channel
+            print("  • Inviting bot to channel...")
+            await client(InviteToChannelRequest(channel=channel, users=[bot]))
+            print("  • Bot invited to channel")
+
+            # Wait a moment for the invite to process
+            await asyncio.sleep(1)
 
             # Admin rights for the bot
             admin_rights = ChatAdminRights(
@@ -192,24 +220,28 @@ async def setup_telethon():
                 change_info=False,
             )
 
-            # Add bot as admin
+            # Promote bot to admin
+            print("  • Promoting bot to administrator...")
             await client(
                 EditAdminRequest(
                     channel=channel, user_id=bot, admin_rights=admin_rights, rank="Bot"
                 )
             )
 
-            print(f"✓ Bot added as administrator!")
+            print(f"✓ Bot added as administrator with full permissions!")
             print()
 
         except Exception as e:
             print(f"⚠️  Could not add bot automatically: {e}")
             print()
             print("Please manually:")
-            print(f"1. Open the channel: {channel_title}")
-            print("2. Add your bot as administrator")
-            print("3. Give it 'Post Messages' permission")
+            print(f"1. Search for the channel: {channel_title}")
+            print(f"2. Add your bot (@{bot_username}) as administrator")
+            print("3. Give it 'Post Messages' and 'Delete Messages' permissions")
             print()
+            import traceback
+
+            traceback.print_exc()
 
         # Update .env file
         print("Updating .env file with STORAGE_CHANNEL_ID...")
