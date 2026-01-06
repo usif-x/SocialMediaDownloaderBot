@@ -153,6 +153,19 @@ class YouTubeCookieRefresher:
                 logger.info("Navigating to YouTube...")
                 await page.goto("https://www.youtube.com", wait_until="networkidle")
 
+                # Accept consent dialog if present
+                try:
+                    consent_button = await page.wait_for_selector(
+                        'button[aria-label*="Accept"], button[aria-label*="Reject"], form[action*="consent"] button',
+                        timeout=3000,
+                    )
+                    if consent_button:
+                        await consent_button.click()
+                        logger.info("Accepted consent dialog")
+                        await self.random_delay(1, 2)
+                except Exception:
+                    logger.info("No consent dialog found (may already be accepted)")
+
                 # Random delay after page load
                 await self.random_delay(2, 4)
 
@@ -185,15 +198,28 @@ class YouTubeCookieRefresher:
                 logger.info("Extracting cookies...")
                 cookies = await context.cookies()
 
-                # Filter YouTube cookies
+                # Filter YouTube and Google cookies (include all relevant domains)
                 youtube_cookies = [
                     c
                     for c in cookies
-                    if "youtube.com" in c.get("domain", "")
-                    or "google.com" in c.get("domain", "")
+                    if any(
+                        domain in c.get("domain", "")
+                        for domain in [
+                            "youtube.com",
+                            "google.com",
+                            "googlevideo.com",
+                            "ytimg.com",
+                            "ggpht.com",
+                            "gstatic.com",
+                        ]
+                    )
                 ]
 
                 logger.info(f"Found {len(youtube_cookies)} YouTube/Google cookies")
+
+                # Log cookie names for debugging
+                cookie_names = [c.get("name", "unknown") for c in youtube_cookies]
+                logger.info(f"Cookie names: {', '.join(cookie_names)}")
 
                 if not youtube_cookies:
                     logger.warning("No cookies found!")
