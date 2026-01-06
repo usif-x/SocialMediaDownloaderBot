@@ -57,16 +57,16 @@ services:
     container_name: telegram-downloader-redis
     restart: unless-stopped
     volumes:
-  cookies:
-  browser_profile:
       - redis_data:/data
-  healthcheck:
-    test: ["CMD", "redis-cli", "ping"]
-    interval: 10s
-    timeout: 5s
-    retries: 5
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
   redis_data:
   downloads:
+  cookies:
+  browser_profile:
