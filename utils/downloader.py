@@ -52,8 +52,7 @@ class VideoDownloader:
             "extractor_args": {
                 "youtube": {
                     "player_client": ["android", "ios", "web"],
-                    "player_skip": ["webpage", "configs"],
-                    "skip": ["hls"],
+                    "player_skip": ["webpage"],
                 }
             },
             # Spoof user agent to look like a real browser
@@ -364,8 +363,7 @@ class VideoDownloader:
             "extractor_args": {
                 "youtube": {
                     "player_client": ["android", "ios", "web"],
-                    "player_skip": ["webpage", "configs"],
-                    "skip": ["hls"],
+                    "player_skip": ["webpage"],
                 }
             },
             # Spoof user agent

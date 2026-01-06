@@ -75,10 +75,12 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Escape markdown special characters properly using telegram helper
             title_escaped = escape_markdown(title, version=2)
+            date_escaped = escape_markdown(date_str, version=2)
+            size_escaped = escape_markdown(size_str, version=2)
 
             history_text += (
                 f"{i}\\. {type_icon} *{title_escaped}*\n"
-                f"   📅 {date_str} | 💾 {size_str}\n"
+                f"   📅 {date_escaped} \\| 💾 {size_escaped}\n"
                 f"   🔗 /restore\\_{dl.id}\n\n"
             )
 
