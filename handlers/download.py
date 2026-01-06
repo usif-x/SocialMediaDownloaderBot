@@ -104,13 +104,31 @@ async def handle_url(
             download.error_message = "Failed to extract video information"
             db.commit()
 
-            # Store URL for retry (callback_data has 64 byte limit)
-            context.user_data[f"retry_url_{user.id}"] = url
-
-            # Add retry button with short callback data
-            keyboard = [
-                [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_{user.id}")]
+            # Extract YouTube video ID from URL for retry
+            # Patterns: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
+            video_id = None
+            import re
+            patterns = [
+                r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
             ]
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match:
+                    video_id = match.group(1)
+                    break
+            
+            if video_id:
+                # Use video ID in callback - much shorter than full URL
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_yt_{video_id}")]
+                ]
+            else:
+                # Fallback: store in context if we can't extract ID
+                context.user_data[f"retry_url_{user.id}"] = url
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Retry", callback_data=f"retry_ctx_{user.id}")]
+                ]
+            
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await processing_msg.edit_text(

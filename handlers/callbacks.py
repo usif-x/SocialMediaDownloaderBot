@@ -225,11 +225,20 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
     # Handle retry button
     elif action == "retry":
-        # Get user ID from the user who clicked (more reliable than callback_data)
-        retry_user_id = query.from_user.id
-
-        # Get URL from context
-        url = context.user_data.get(f"retry_url_{retry_user_id}")
+        retry_type = callback_data[1] if len(callback_data) > 1 else None
+        
+        # Handle retry_yt_{video_id} - YouTube video ID in callback
+        if retry_type == "yt" and len(callback_data) >= 3:
+            video_id = callback_data[2]
+            url = f"https://www.youtube.com/watch?v={video_id}"
+        # Handle retry_ctx_{user_id} - fallback to context storage
+        elif retry_type == "ctx" and len(callback_data) >= 3:
+            retry_user_id = int(callback_data[2])
+            url = context.user_data.get(f"retry_url_{retry_user_id}")
+        else:
+            # Legacy format: retry_{user_id}
+            retry_user_id = query.from_user.id
+            url = context.user_data.get(f"retry_url_{retry_user_id}")
 
         if not url:
             await query.answer("❌ Session expired. Please send the link again.")
