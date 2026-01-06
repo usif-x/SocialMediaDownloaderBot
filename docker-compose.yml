@@ -13,6 +13,7 @@ services:
       - TELEGRAM_API_ID=${TELEGRAM_API_ID:-}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH:-}
       - TELEGRAM_PHONE=${TELEGRAM_PHONE:-}
+      - STORAGE_CHANNEL_ID=${STORAGE_CHANNEL_ID:-}
       - DATABASE_URL=postgresql://botuser:botpassword@postgres:5432/botdb
       - REDIS_HOST=redis
       - REDIS_PORT=6379
