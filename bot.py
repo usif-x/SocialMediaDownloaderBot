@@ -43,16 +43,17 @@ async def post_init(application: Application):
     init_db()
     logger.info("Database initialized successfully")
 
-    # Initialize scheduler
-    scheduler = AsyncIOScheduler()
-    refresher = CookieRefresher()
-    
-    # Schedule refreshing every minute with some jitter if possible, 
-    # but for simplicity using interval.
-    # User asked for "every min" 
-    scheduler.add_job(refresher.refresh, "interval", minutes=1)
-    scheduler.start()
-    logger.info("Scheduler started for cookie refreshing")
+    # Initialize scheduler only if AUTO_REFRESH_COOKIES is enabled
+    if settings.AUTO_REFRESH_COOKIES:
+        scheduler = AsyncIOScheduler()
+        refresher = CookieRefresher()
+        
+        # Schedule refreshing every minute
+        scheduler.add_job(refresher.refresh, "interval", minutes=1)
+        scheduler.start()
+        logger.info("Scheduler started for cookie refreshing (AUTO_REFRESH_COOKIES=true)")
+    else:
+        logger.info("Automatic cookie refreshing is disabled (AUTO_REFRESH_COOKIES=false). Use /refresh to refresh manually.")
 
 
 async def error_handler(update: object, context: object):
