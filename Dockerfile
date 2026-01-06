@@ -1,14 +1,16 @@
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.49.1-jammy
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies including ffmpeg
+# Install system dependencies
+# Playwright image has browser deps, but we need ffmpeg and xvfb for our specific usage
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ffmpeg \
   gcc \
   libpq-dev \
+  xvfb \
   && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
@@ -17,10 +19,8 @@ WORKDIR /app
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN playwright install --with-deps chromium
 
-# Install Xvfb for headless display
-RUN apt-get update && apt-get install -y xvfb
+# Browsers are already installed in this image, so we don't need 'playwright install'
 
 # Copy project files
 COPY . .
