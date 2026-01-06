@@ -22,6 +22,7 @@ from handlers import (
     handle_url,
     help_command,
     history_command,
+    history_pagination_callback,
     restore_command,
     start_command,
 )
@@ -99,6 +100,11 @@ def main():
     )
     application.add_handler(
         CallbackQueryHandler(handle_quality_selection, pattern="^quality_")
+    )
+
+    # Add callback query handler for history pagination
+    application.add_handler(
+        CallbackQueryHandler(history_pagination_callback, pattern="^history_page_")
     )
 
     # Add message handler for URLs - MUST be last
