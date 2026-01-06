@@ -68,6 +68,15 @@ class TelethonUploader:
         file_path: str,
         caption: str = "",
         progress_callback=None,
+        thumbnail_path: str = None,
+        is_audio: bool = False,
+        audio_title: str = None,
+        audio_performer: str = None,
+        audio_duration: int = 0,
+        is_video: bool = False,
+        video_duration: int = 0,
+        video_width: int = 0,
+        video_height: int = 0,
     ):
         """
         Upload a file to storage channel and return channel/message ID for bot to copy
@@ -77,6 +86,15 @@ class TelethonUploader:
             file_path: Path to file to upload
             caption: File caption
             progress_callback: Optional callback for upload progress
+            thumbnail_path: Optional path to thumbnail file
+            is_audio: Whether the file is an audio file
+            audio_title: Title for audio file
+            audio_performer: Performer/artist for audio file
+            audio_duration: Duration in seconds for audio file
+            is_video: Whether the file is a video file
+            video_duration: Duration in seconds for video file
+            video_width: Width of video in pixels
+            video_height: Height of video in pixels
 
         Returns:
             Tuple of (channel_id, message_id) if successful, (None, error_msg) if failed
@@ -117,11 +135,48 @@ class TelethonUploader:
                 return None, f"Failed to access storage channel: {str(e)}"
 
             # Upload file to the storage channel
+            upload_kwargs = {
+                "caption": caption,
+                "progress_callback": progress if progress_callback else None,
+            }
+
+            # Add thumbnail if provided and exists
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                upload_kwargs["thumb"] = thumbnail_path
+
+            # Add audio attributes for proper metadata
+            if is_audio:
+                from telethon.tl.types import DocumentAttributeAudio
+
+                attributes = []
+                attributes.append(
+                    DocumentAttributeAudio(
+                        duration=audio_duration or 0,
+                        title=audio_title,
+                        performer=audio_performer,
+                    )
+                )
+                upload_kwargs["attributes"] = attributes
+                # Force as voice=False to send as music not voice message
+                upload_kwargs["voice_note"] = False
+
+            # Add video attributes for proper video metadata with thumbnail
+            elif is_video:
+                from telethon.tl.types import DocumentAttributeVideo
+
+                attributes = []
+                attributes.append(
+                    DocumentAttributeVideo(
+                        duration=video_duration or 0,
+                        w=video_width or 1280,
+                        h=video_height or 720,
+                        supports_streaming=True,
+                    )
+                )
+                upload_kwargs["attributes"] = attributes
+
             sent_message = await self.client.send_file(
-                channel,
-                file_path,
-                caption=caption,
-                progress_callback=progress if progress_callback else None,
+                channel, file_path, **upload_kwargs
             )
 
             if sent_message:
