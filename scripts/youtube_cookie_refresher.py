@@ -196,13 +196,36 @@ class YouTubeCookieRefresher:
                             )
                             logger.info(f"Visiting video page: {full_url[:50]}...")
 
-                            # Use domcontentloaded instead of networkidle to avoid detection
+                            # Use domcontentloaded and wait for player
                             await page.goto(
-                                full_url, wait_until="domcontentloaded", timeout=15000
+                                full_url, wait_until="domcontentloaded", timeout=20000
                             )
 
-                            # Shorter wait to reduce detection
-                            await self.random_delay(2, 3)
+                            # Wait for video player to load
+                            await self.random_delay(3, 5)
+
+                            # Try to click play button or interact with player
+                            try:
+                                # Wait for player to be ready
+                                await page.wait_for_selector("video", timeout=5000)
+                                logger.info("Video player detected")
+
+                                # Try to play the video (this generates VISITOR_INFO1_LIVE)
+                                await page.evaluate(
+                                    "document.querySelector('video')?.play()"
+                                )
+                                logger.info("Video playback started")
+
+                                # Let it play for a bit
+                                await self.random_delay(3, 5)
+
+                                # Pause it
+                                await page.evaluate(
+                                    "document.querySelector('video')?.pause()"
+                                )
+
+                            except Exception as e:
+                                logger.warning(f"Player interaction failed: {e}")
 
                             logger.info("Video page visited successfully")
                 except Exception as e:
