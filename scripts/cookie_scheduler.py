@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cookie Scheduler - Runs cookie refresher at random intervals (1-5 minutes)
+Cookie Scheduler - Runs cookie refresher at random intervals (5-20 seconds)
 Uses APScheduler to trigger refreshes with randomized delays for anti-detection.
 """
 
@@ -35,15 +35,15 @@ class CookieScheduler:
         cookies_file: str = "/app/cookies/cookies.txt",
         profile_dir: str = "/app/browser_profile",
         headless: bool = True,
-        min_interval_minutes: int = 1,
-        max_interval_minutes: int = 5,
+        min_interval_seconds: int = 5,
+        max_interval_seconds: int = 20,
     ):
         self.refresher = YouTubeCookieRefresher(
             cookies_file=cookies_file, profile_dir=profile_dir, headless=headless
         )
 
-        self.min_interval_minutes = min_interval_minutes
-        self.max_interval_minutes = max_interval_minutes
+        self.min_interval_seconds = min_interval_seconds
+        self.max_interval_seconds = max_interval_seconds
 
         self.scheduler = AsyncIOScheduler()
         self.is_running = False
@@ -77,18 +77,12 @@ class CookieScheduler:
         if not self.is_running:
             return
 
-        # Generate random interval (in minutes)
-        interval_minutes = random.uniform(
-            self.min_interval_minutes, self.max_interval_minutes
+        # Generate random interval (in seconds)
+        interval_seconds = random.uniform(
+            self.min_interval_seconds, self.max_interval_seconds
         )
 
-        # Convert to seconds for scheduler
-        interval_seconds = interval_minutes * 60
-
-        logger.info(
-            f"📅 Next refresh scheduled in {interval_minutes:.2f} minutes "
-            f"({interval_seconds:.1f} seconds)"
-        )
+        logger.info(f"📅 Next refresh scheduled in {interval_seconds:.1f} seconds")
 
         # Schedule the job (remove old job if exists)
         if self.scheduler.get_job("refresh_job"):
@@ -109,8 +103,8 @@ class CookieScheduler:
         """Run initial cookie refresh on startup"""
         logger.info("Running initial cookie refresh...")
 
-        # Add small random delay before first run (5-15 seconds)
-        initial_delay = random.uniform(5, 15)
+        # Add small random delay before first run (1-3 seconds)
+        initial_delay = random.uniform(1, 3)
         logger.info(f"Starting in {initial_delay:.1f} seconds...")
         await asyncio.sleep(initial_delay)
 
@@ -125,7 +119,7 @@ class CookieScheduler:
         logger.info(f"Browser profile: {self.refresher.profile_dir}")
         logger.info(f"Headless mode: {self.refresher.headless}")
         logger.info(
-            f"Random interval: {self.min_interval_minutes}-{self.max_interval_minutes} minutes"
+            f"Random interval: {self.min_interval_seconds}-{self.max_interval_seconds} seconds"
         )
         logger.info("=" * 60)
 
@@ -176,14 +170,14 @@ async def main():
     parser.add_argument(
         "--min-interval",
         type=int,
-        default=1,
-        help="Minimum interval in minutes (default: 1)",
+        default=5,
+        help="Minimum interval in seconds (default: 5)",
     )
     parser.add_argument(
         "--max-interval",
         type=int,
-        default=5,
-        help="Maximum interval in minutes (default: 5)",
+        default=20,
+        help="Maximum interval in seconds (default: 20)",
     )
 
     args = parser.parse_args()
@@ -196,8 +190,8 @@ async def main():
         cookies_file=args.cookies_file,
         profile_dir=args.profile_dir,
         headless=headless,
-        min_interval_minutes=args.min_interval,
-        max_interval_minutes=args.max_interval,
+        min_interval_seconds=args.min_interval,
+        max_interval_seconds=args.max_interval,
     )
 
     # Handle graceful shutdown

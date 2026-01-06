@@ -217,5 +217,16 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             user_id,
             query.message,
         )
-    else:
-        await query.edit_message_text("❌ Invalid action. Please try again.")
+
+    # Handle retry button
+    elif action == "retry":
+        # Extract URL from callback data
+        url = "_".join(callback_data[1:])  # Rejoin in case URL has underscores
+
+        await query.answer("🔄 Retrying...")
+
+        # Import download handler
+        from handlers.download import handle_url
+
+        # Retry the download by calling handle_url
+        await handle_url(update, context, url=url, existing_message=query.message)
