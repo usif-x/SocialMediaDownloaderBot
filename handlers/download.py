@@ -477,22 +477,39 @@ async def download_and_send_video(
                         except:
                             pass
 
-                # Upload using Telethon
-                success = await telethon_uploader.upload_file(
+                # Upload using Telethon (to Saved Messages first)
+                uploaded_message, error_msg = await telethon_uploader.upload_file(
                     user_id,
                     file_path,
                     caption=caption,
                     progress_callback=telethon_progress,
                 )
 
-                if not success:
+                if not uploaded_message:
                     await download_msg.edit_text(
-                        f"❌ Failed to upload large file.\n"
-                        f"Telethon client may not be configured.\n\n"
+                        f"❌ Failed to upload large file: {error_msg}\n\n"
                         f"Please select a lower quality (under 50MB)."
                     )
                     download.status = "failed"
-                    download.error_message = "Telethon upload failed"
+                    download.error_message = f"Telethon upload failed: {error_msg}"
+                    db.commit()
+                    downloader.cleanup_user_files(user_id)
+                    return
+
+                # Now forward the message to the user
+                await download_msg.edit_text("📤 Sending file to you...")
+
+                forward_success = await telethon_uploader.forward_to_user(
+                    uploaded_message, user_id
+                )
+
+                if not forward_success:
+                    await download_msg.edit_text(
+                        f"❌ Failed to send file to you.\n"
+                        f"Please make sure you have started a conversation with the account."
+                    )
+                    download.status = "failed"
+                    download.error_message = "Failed to forward message to user"
                     db.commit()
                     downloader.cleanup_user_files(user_id)
                     return
