@@ -39,8 +39,12 @@ class VideoDownloader:
             "extract_flat": False,
             "socket_timeout": 30,
             "skip_download": True,
+            # Don't apply any format selection during info extraction
+            "format": None,
+            "youtube_include_dash_manifest": True,
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
+                "youtube": {"skip": ["hls", "translated_subs"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
