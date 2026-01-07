@@ -1,6 +1,9 @@
+"""
+YouTube Cookie Refresher using Playwright with persistent browser profile.
+This module maintains session continuity and better anti-detection.
+"""
 
 import asyncio
-import glob
 import logging
 import os
 import platform
@@ -20,20 +23,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Path must match where downloader.py expects it: /app/cookies.txt (same level as bot.py)
-# The downloader uses: os.path.join(os.path.dirname(self.download_path), "cookies.txt")
-# where download_path is typically /app/downloads, so dirname is /app
+# Path must match where downloader.py expects it
 COOKIES_FILE_PATH = "/app/cookies.txt"
+# Persistent browser profile directory
+BROWSER_PROFILE_DIR = "/app/browser_profile"
+
 
 class CookieRefresher:
     def __init__(self):
         self.xvfb_process = None
+        # Ensure profile directory exists
+        os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
 
     def start_xvfb(self):
         """Start Xvfb if on Linux"""
         if platform.system() == "Linux":
             logger.info("Starting Xvfb...")
-            # Check if a display is already active
             if os.environ.get("DISPLAY"):
                 logger.info(f"DISPLAY already set: {os.environ['DISPLAY']}")
                 return
@@ -41,8 +46,7 @@ class CookieRefresher:
             display_num = 99
             os.environ["DISPLAY"] = f":{display_num}"
             
-            # Start Xvfb
-            xvfb_cmd = ["Xvfb", f":{display_num}", "-screen", "0", "1280x1024x24", "-ac"]
+            xvfb_cmd = ["Xvfb", f":{display_num}", "-screen", "0", "1920x1080x24", "-ac"]
             try:
                 self.xvfb_process = subprocess.Popen(
                     xvfb_cmd,
@@ -50,9 +54,9 @@ class CookieRefresher:
                     stderr=subprocess.DEVNULL
                 )
                 logger.info(f"Xvfb started on :{display_num}")
-                time.sleep(2)  # Give Xvfb time to start
+                time.sleep(2)
             except FileNotFoundError:
-                logger.error("Xvfb not found. Please install it with 'apt-get install xvfb'")
+                logger.error("Xvfb not found.")
             except Exception as e:
                 logger.error(f"Failed to start Xvfb: {e}")
 
@@ -67,176 +71,165 @@ class CookieRefresher:
                 self.xvfb_process.kill()
             self.xvfb_process = None
         
-        # Clean up environment variable so next run starts a fresh Xvfb
         if "DISPLAY" in os.environ:
             del os.environ["DISPLAY"]
 
     async def refresh(self):
-        """Refreshes YouTube cookies"""
+        """Refreshes YouTube cookies using persistent browser profile"""
         logger.info("Starting cookie refresh process...")
         self.start_xvfb()
 
-        ua = UserAgent()
-        user_agent = ua.chrome
-
         async with async_playwright() as p:
-            # Launch browser
-            # We use a persistent context to simulate a real user profile if we wanted to keep session
-            # But the requirement is to periodically fetch *without* logging in, so a fresh context is likely okay
-            # However, to be more "human", we mimic a regular chrome instance.
-            
-            browser = await p.chromium.launch(
-                headless=False,  # Requirements say non-headless (handled by Xvfb)
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ]
-            )
-            
-            context = await browser.new_context(
-                user_agent=user_agent,
-                viewport={"width": 1280, "height": 800},
-                locale="en-US",
-                timezone_id="America/New_York", # Or randomize
-            )
-
-            page = await context.new_page()
-
             try:
-                # 1. Go to YouTube
-                logger.info("Navigating to YouTube...")
-                await page.goto("https://www.youtube.com", timeout=60000)
-                await page.wait_for_load_state("networkidle")
+                # Use persistent context to maintain browser fingerprint and cookies
+                # This is crucial - YouTube tracks browser fingerprints
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=BROWSER_PROFILE_DIR,
+                    headless=False,
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                    timezone_id="America/New_York",
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-dev-shm-usage",
+                        "--disable-accelerated-2d-canvas",
+                        "--no-first-run",
+                        "--no-zygote",
+                        "--disable-gpu",
+                        # Anti-detection flags
+                        "--disable-features=IsolateOrigins,site-per-process",
+                        "--disable-site-isolation-trials",
+                    ],
+                    ignore_default_args=["--enable-automation"],
+                )
 
-                # Handle consent popup if it appears (EU)
+                # Remove webdriver property to avoid detection
+                page = context.pages[0] if context.pages else await context.new_page()
+                
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                    
+                    // Override the plugins property
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                    
+                    // Override languages
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en']
+                    });
+                    
+                    // Override platform
+                    Object.defineProperty(navigator, 'platform', {
+                        get: () => 'Win32'
+                    });
+                """)
+
+                # Navigate to YouTube
+                logger.info("Navigating to YouTube...")
+                await page.goto("https://www.youtube.com", timeout=60000, wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(3, 5))
+
+                # Handle consent popup
                 try:
-                    accept_button = page.get_by_text("Accept all", exact=True).or_(page.get_by_role("button", name="Accept all"))
-                    if await accept_button.is_visible(timeout=5000):
-                        await accept_button.click()
-                        logger.info("Accepted cookies consent")
+                    consent_buttons = [
+                        page.get_by_role("button", name="Accept all"),
+                        page.get_by_role("button", name="Accept"),
+                        page.locator("button:has-text('Accept all')"),
+                        page.locator("[aria-label='Accept all']"),
+                    ]
+                    for btn in consent_buttons:
+                        try:
+                            if await btn.is_visible(timeout=2000):
+                                await btn.click()
+                                logger.info("Accepted cookies consent")
+                                await asyncio.sleep(2)
+                                break
+                        except:
+                            continue
                 except Exception:
                     pass
 
-                # 3. Random Interactions
-                # Scroll a bit
-                logger.info("Scrolling...")
-                await page.mouse.wheel(0, random.randint(500, 2000))
-                await asyncio.sleep(random.uniform(2, 5))
+                # Human-like scrolling
+                logger.info("Performing human-like actions...")
+                for _ in range(random.randint(2, 4)):
+                    await page.mouse.wheel(0, random.randint(200, 600))
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
 
-                # Click on a video or visit a random one
-                logger.info("Looking for a video to watch...")
-                
-                # List of fallback videos (popular/safe content) to ensure we always watch something
+                # Watch a video
                 fallback_videos = [
-                    "https://www.youtube.com/watch?v=jNQXAC9IVRw", # Me at the zoo
-                    "https://www.youtube.com/watch?v=LXb3EKWsInQ", # Costa Rica 4K
-                    "https://www.youtube.com/watch?v=9bZkp7q19f0", # PSY - GANGNAM STYLE
-                    "https://www.youtube.com/watch?v=kJQP7kiw5Fk", # Despacito
-                    "https://www.youtube.com/watch?v=JGwWNGJdvx8", # Ed Sheeran - Shape of You
-                    "https://www.youtube.com/watch?v=aqz-KE-bpKQ", # Big Buck Bunny 60fps 4K
+                    "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                    "https://www.youtube.com/watch?v=9bZkp7q19f0",
+                    "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
+                    "https://www.youtube.com/watch?v=JGwWNGJdvx8",
+                    "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 ]
 
-                video_thumbnails = await page.locator("ytd-rich-grid-media").all()
-                
-                # 50% chance to just go to a direct link anyway, or if no thumbnails found
-                if not video_thumbnails or random.random() > 0.5:
-                    logger.info("Navigating to a random fallback video...")
-                    video_url = random.choice(fallback_videos)
-                    await page.goto(video_url, timeout=60000)
-                    await page.wait_for_load_state("networkidle")
-                else:
-                    logger.info("Clicking a homepage video...")
-                    video = random.choice(video_thumbnails[:5]) # Pick one of the first few
-                    
-                    # Ensure it's clickable
-                    if await video.is_visible():
-                        await video.click()
-                    else:
-                        logger.warning("Homepage video not visible, using fallback.")
-                        await page.goto(random.choice(fallback_videos))
+                logger.info("Navigating to a video...")
+                video_url = random.choice(fallback_videos)
+                await page.goto(video_url, timeout=60000, wait_until="domcontentloaded")
+                await asyncio.sleep(random.uniform(2, 4))
 
-                logger.info("Watching video...")
-                # Watch for 10-30 seconds
-                watch_duration = random.uniform(10, 30)
+                # Try to click play if video is paused
+                try:
+                    play_button = page.locator(".ytp-play-button")
+                    if await play_button.is_visible(timeout=3000):
+                        state = await play_button.get_attribute("data-title-no-tooltip")
+                        if state and "Play" in state:
+                            await play_button.click()
+                            logger.info("Clicked play button")
+                except:
+                    pass
+
+                # Watch for random duration
+                watch_duration = random.uniform(15, 35)
+                logger.info(f"Watching video for {watch_duration:.0f} seconds...")
                 await asyncio.sleep(watch_duration)
-                
-                # Scroll down to comments maybe
-                await page.mouse.wheel(0, 500)
-                await asyncio.sleep(2)
 
-                # 3. Export All Cookies
-                logger.info("Exporting all cookies...")
-                # Get all cookies from the context (since we only visited YouTube, this is safe and complete)
+                # More scrolling
+                for _ in range(random.randint(1, 3)):
+                    await page.mouse.wheel(0, random.randint(100, 400))
+                    await asyncio.sleep(random.uniform(0.3, 1))
+
+                # Export cookies
+                logger.info("Exporting cookies...")
                 cookies = await context.cookies()
                 
                 if not cookies:
                     logger.error("No cookies retrieved!")
                     return False
 
-                # Format in Netscape format for yt-dlp
-                netscape_cookies = "# Netscape HTTP Cookie File\n# This file is generated by Playwright\n\n"
-                
-                for cookie in cookies:
-                    domain = cookie.get('domain', '')
-                    # Netscape format requires initial dot for domain if it's not present (sometimes)
-                    # But usually Playwright returns it correctly.
-                    
-                    include_subdomains = "TRUE" if domain.startswith('.') else "FALSE"
-                    path = cookie.get('path', '/')
-                    secure = "TRUE" if cookie.get('secure', False) else "FALSE"
-                    expires = int(cookie.get('expires', 0))
-                    # If expires is 0 or -1, it's a session cookie. Set it to something far future or 0.
-                    # yt-dlp might prefer actual expiration.
-                    if expires == -1:
-                        expires = 0
-                        
-                    name = cookie.get('name', '')
-                    value = cookie.get('value', '')
-                    
-                    netscape_cookies += f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
-
-                # 4. Merge with existing cookies
-                logger.info(f"Merging cookies with existing file: {COOKIES_FILE_PATH}...")
-                
-                # Auth cookies to PRESERVE from existing file (these are from logged-in account)
+                # Auth cookies to preserve from existing file
                 AUTH_COOKIES_TO_PRESERVE = {
-                    "LOGIN_INFO",
-                    "__Secure-3PSID",
-                    "__Secure-3PAPISID", 
-                    "__Secure-1PSID",
-                    "__Secure-1PAPISID",
-                    "__Secure-1PSIDTS",
-                    "__Secure-3PSIDTS",
-                    "__Secure-3PSIDCC",
-                    "__Secure-1PSIDCC",
-                    "SID",
-                    "HSID",
-                    "SSID",
-                    "APISID",
-                    "SAPISID",
-                    "NID",
-                    # Session login info cookies
-                    "ST-sbra4i",
-                    "ST-183jmdn",
+                    "LOGIN_INFO", "__Secure-3PSID", "__Secure-3PAPISID",
+                    "__Secure-1PSID", "__Secure-1PAPISID", "__Secure-1PSIDTS",
+                    "__Secure-3PSIDTS", "__Secure-3PSIDCC", "__Secure-1PSIDCC",
+                    "SID", "HSID", "SSID", "APISID", "SAPISID", "NID",
                 }
                 
-                # Parse existing cookies from file
+                # Cookies that should ALWAYS be updated from browser
+                ALWAYS_UPDATE_COOKIES = {
+                    "VISITOR_INFO1_LIVE", "VISITOR_PRIVACY_METADATA", "YSC",
+                    "PREF", "GPS", "SOCS", "__Secure-ROLLOUT_TOKEN",
+                }
+
+                # Parse existing cookies
                 existing_cookies = {}
                 if os.path.exists(COOKIES_FILE_PATH):
                     try:
                         with open(COOKIES_FILE_PATH, 'r') as f:
-                            existing_content = f.read()
-                            logger.info(f"--- EXISTING COOKIES ({len(existing_content)} chars) ---\n{existing_content}\n-----------------------------------")
-                            
-                            for line in existing_content.splitlines():
+                            for line in f:
                                 line = line.strip()
                                 if not line or line.startswith('#'):
                                     continue
                                 parts = line.split('\t')
                                 if len(parts) >= 7:
-                                    cookie_name = parts[5]
-                                    existing_cookies[cookie_name] = {
+                                    existing_cookies[parts[5]] = {
                                         'domain': parts[0],
                                         'include_subdomains': parts[1],
                                         'path': parts[2],
@@ -248,16 +241,20 @@ class CookieRefresher:
                     except Exception as e:
                         logger.error(f"Failed to read existing cookies: {e}")
 
-                # Parse new cookies from browser
+                # Build new cookies dict
                 new_cookies = {}
                 for cookie in cookies:
                     domain = cookie.get('domain', '')
+                    if not domain.endswith('youtube.com') and not domain.endswith('google.com'):
+                        continue  # Skip non-YouTube cookies
+                        
                     include_subdomains = "TRUE" if domain.startswith('.') else "FALSE"
                     path = cookie.get('path', '/')
                     secure = "TRUE" if cookie.get('secure', False) else "FALSE"
                     expires = int(cookie.get('expires', 0))
                     if expires == -1:
-                        expires = 0
+                        # Session cookie - set expiry to 1 year from now
+                        expires = int(time.time()) + 365 * 24 * 60 * 60
                     name = cookie.get('name', '')
                     value = cookie.get('value', '')
                     
@@ -271,36 +268,40 @@ class CookieRefresher:
                         'value': value,
                     }
 
-                # Merge: Start with existing cookies, then update with new ones (except auth cookies)
+                # Merge cookies
                 merged_cookies = existing_cookies.copy()
                 
                 for name, cookie_data in new_cookies.items():
-                    if name in AUTH_COOKIES_TO_PRESERVE:
-                        # Keep the existing auth cookie if it exists
+                    # Always update these critical session cookies
+                    if name in ALWAYS_UPDATE_COOKIES:
+                        merged_cookies[name] = cookie_data
+                        logger.info(f"Updated session cookie: {name}")
+                    # Preserve auth cookies from existing
+                    elif name in AUTH_COOKIES_TO_PRESERVE:
                         if name in existing_cookies:
-                            logger.info(f"Preserving auth cookie: {name}")
+                            logger.info(f"Preserved auth cookie: {name}")
                             continue
-                    # Update/add non-auth cookies
-                    merged_cookies[name] = cookie_data
-                
+                        else:
+                            # Auth cookie not in existing, add it
+                            merged_cookies[name] = cookie_data
+                    else:
+                        # For other cookies, update with new values
+                        merged_cookies[name] = cookie_data
+
                 # Build final Netscape format
-                netscape_cookies = "# Netscape HTTP Cookie File\n# Merged: Auth cookies preserved, session cookies refreshed\n\n"
+                netscape_cookies = "# Netscape HTTP Cookie File\n# Merged: Auth preserved, session refreshed\n\n"
                 
                 for name, c in merged_cookies.items():
                     netscape_cookies += f"{c['domain']}\t{c['include_subdomains']}\t{c['path']}\t{c['secure']}\t{c['expires']}\t{c['name']}\t{c['value']}\n"
 
-                # Log merged cookies
-                logger.info(f"--- MERGED COOKIES ({len(netscape_cookies)} chars) ---\n{netscape_cookies}\n-----------------------------------")
+                logger.info(f"Total cookies: {len(merged_cookies)}")
                 
-                # Ensure directory exists
+                # Atomic save
                 os.makedirs(os.path.dirname(COOKIES_FILE_PATH) or '.', exist_ok=True)
-                
-                # Write to temp file first
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=os.path.dirname(COOKIES_FILE_PATH) or '.') as tmp_file:
                     tmp_file.write(netscape_cookies)
                     tmp_file_path = tmp_file.name
                 
-                # Atomic move
                 shutil.move(tmp_file_path, COOKIES_FILE_PATH)
                 logger.info("Cookies merged and saved successfully.")
                 return True
@@ -311,9 +312,12 @@ class CookieRefresher:
                 traceback.print_exc()
                 return False
             finally:
-                await context.close()
-                await browser.close()
+                try:
+                    await context.close()
+                except:
+                    pass
                 self.stop_xvfb()
+
 
 if __name__ == "__main__":
     refresher = CookieRefresher()

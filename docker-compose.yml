@@ -25,7 +25,8 @@ services:
       - AUTO_REFRESH_COOKIES=${AUTO_REFRESH_COOKIES:-false}
     volumes:
       - downloads:/app/downloads
-
+      - browser_profile:/app/browser_profile
+    shm_size: '2gb'
   postgres:
     image: postgres:15-alpine
     container_name: telegram-downloader-db
@@ -58,3 +59,4 @@ volumes:
   postgres_data:
   redis_data:
   downloads:
+  browser_profile:
