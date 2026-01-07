@@ -69,7 +69,22 @@ class VideoDownloader:
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                try:
+                    info = ydl.extract_info(url, download=False)
+                except yt_dlp.utils.DownloadError as e:
+                    if "Requested format is not available" in str(e):
+                        logger.warning("Default extraction failed, trying iOS client fallback...")
+                        # Fallback for restricted videos (often work with iOS client)
+                        ydl_opts["extractor_args"] = {
+                            "youtube": {
+                                "player_client": ["ios", "ios_embedded", "web_embedded"],
+                                "skip": ["dash", "hls"],
+                            }
+                        }
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl_fallback:
+                            info = ydl_fallback.extract_info(url, download=False)
+                    else:
+                        raise e
 
                 if not info:
                     return None
@@ -147,86 +162,69 @@ class VideoDownloader:
                     for fmt in info["formats"]:
                         fmt_vcodec = fmt.get("vcodec", "none")
                         fmt_acodec = fmt.get("acodec", "none")
-
-                        # Video formats (must have video codec)
-                        if fmt_vcodec and fmt_vcodec != "none":
+                        protocol = fmt.get("protocol", "")
+                        
+                        # Special handling for storyboard
+                        if "storyboard" in fmt.get("format_note", ""):
+                            continue
+                            
+                        # Determine resolution
+                        if fmt.get("height"):
+                            resolution = f"{fmt.get('width', 0)}x{fmt.get('height')}"
                             height = fmt.get("height")
-                            if height and height not in seen_video_qualities:
-                                # Get filesize or estimate from bitrate
-                                filesize = fmt.get("filesize") or fmt.get(
-                                    "filesize_approx"
-                                )
-                                if not filesize and video_duration:
-                                    # Estimate from bitrate if available
-                                    tbr = fmt.get("tbr") or fmt.get("vbr", 0)
-                                    if tbr:
-                                        # filesize = (bitrate in bits/sec * duration) / 8
-                                        # Apply 0.7 correction factor for compression efficiency
-                                        filesize = int(
-                                            (tbr * 1000 * video_duration * 0.7) / 8
-                                        )
+                        elif fmt.get("resolution") and fmt.get("resolution") != "audio only":
+                            resolution = fmt.get("resolution")
+                            # Try to parse height from resolution string (e.g. "1280x720")
+                            try:
+                                height = int(resolution.split("x")[1])
+                            except:
+                                height = 0
+                        else:
+                            resolution = "Audio Only"
+                            height = 0
 
-                                video_formats.append(
-                                    {
-                                        "format_id": fmt.get("format_id", "best"),
-                                        "quality": f"{height}p",
-                                        "ext": fmt.get("ext", "mp4"),
-                                        "filesize": filesize or 0,
-                                        "has_audio": fmt_acodec
-                                        and fmt_acodec != "none",
-                                    }
-                                )
+                        # Format entry for selection
+                        filesize = fmt.get("filesize") or fmt.get("filesize_approx")
+                        if not filesize and video_duration > 0 and fmt.get("tbr"):
+                            # Estimate filesize from bitrate: (tbr * 1024 * duration) / 8 bytes
+                            filesize = int((fmt.get("tbr") * 1024 * video_duration) / 8)
+                            
+                        format_entry = {
+                            "format_id": fmt["format_id"],
+                            "ext": fmt.get("ext", "mp4"),
+                            "resolution": resolution,
+                            "filesize": filesize,
+                            "vcodec": fmt_vcodec,
+                            "acodec": fmt_acodec,
+                            "protocol": protocol,
+                            "height": height
+                        }
+
+                        # Check for video formats (including Apple HLS/m3u8)
+                        is_video = (fmt_vcodec != "none" and fmt_vcodec is not None)
+                        
+                        # Allow m3u8 formats if they are video (often needed for iOS client)
+                        if is_video and ("m3u8" in protocol or "http" in protocol or "https" in protocol):
+                            # Deduplicate by height/resolution
+                            if height > 0 and height not in seen_video_qualities:
+                                video_formats.append(format_entry)
                                 seen_video_qualities.add(height)
+                        
+                        # Check for audio formats (skip m3u8 audio for now if we can)
+                        elif fmt_acodec != "none" and fmt_acodec is not None:
+                            # Use bitrate as quality identifier
+                            abr = fmt.get("abr", 0) or 0
+                            if abr > 0 and abr not in seen_audio_qualities:
+                                audio_formats.append(format_entry)
+                                seen_audio_qualities.add(abr)
 
-                        # Audio-only formats (has audio but no video)
-                        if (
-                            fmt_acodec
-                            and fmt_acodec != "none"
-                            and (not fmt_vcodec or fmt_vcodec == "none")
-                        ):
-                            abr = fmt.get("abr") or fmt.get("tbr") or 0
-                            if abr and int(abr) not in seen_audio_qualities:
-                                # Get filesize or estimate from bitrate
-                                filesize = fmt.get("filesize") or fmt.get(
-                                    "filesize_approx"
-                                )
-                                if not filesize and video_duration and abr:
-                                    # filesize = (bitrate in bits/sec * duration) / 8
-                                    # Apply 0.7 correction factor for compression efficiency
-                                    filesize = int(
-                                        (abr * 1000 * video_duration * 0.7) / 8
-                                    )
+                # Sort formats: higher resolution/bitrate first
+                video_formats.sort(key=lambda x: x.get("height", 0), reverse=True)
+                audio_formats.sort(
+                    key=lambda x: x.get("filesize", 0) or 0, reverse=True
+                )
 
-                                audio_formats.append(
-                                    {
-                                        "format_id": fmt.get("format_id", "bestaudio"),
-                                        "quality": f"{int(abr)}kbps",
-                                        "ext": fmt.get("ext", "m4a"),
-                                        "filesize": filesize or 0,
-                                    }
-                                )
-                                seen_audio_qualities.add(int(abr))
 
-                    # Sort by quality (highest first)
-                    if video_formats:
-                        video_formats.sort(
-                            key=lambda x: (
-                                int(x["quality"].replace("p", ""))
-                                if x["quality"] != "Best"
-                                else 9999
-                            ),
-                            reverse=True,
-                        )
-
-                    if audio_formats:
-                        audio_formats.sort(
-                            key=lambda x: (
-                                int(x["quality"].replace("kbps", ""))
-                                if x["quality"] != "Best"
-                                else 9999
-                            ),
-                            reverse=True,
-                        )
 
                 # Always provide options even if no specific formats found
                 # This handles single-format videos (like Instagram)
