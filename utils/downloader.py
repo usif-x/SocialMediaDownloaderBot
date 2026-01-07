@@ -82,7 +82,11 @@ class VideoDownloader:
                             }
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl_fallback:
-                            info = ydl_fallback.extract_info(url, download=False)
+                            try:
+                                info = ydl_fallback.extract_info(url, download=False)
+                            except yt_dlp.utils.DownloadError as fallback_e:
+                                logger.error(f"iOS client fallback also failed: {fallback_e}")
+                                raise fallback_e # Re-raise the fallback error if it fails
                     else:
                         raise e
 
@@ -169,14 +173,17 @@ class VideoDownloader:
                             continue
                             
                         # Determine resolution
-                        if fmt.get("height"):
-                            resolution = f"{fmt.get('width', 0)}x{fmt.get('height')}"
-                            height = fmt.get("height")
+                        height = fmt.get("height") or 0
+                        width = fmt.get("width") or 0
+                        
+                        if height:
+                            resolution = f"{width}x{height}"
                         elif fmt.get("resolution") and fmt.get("resolution") != "audio only":
                             resolution = fmt.get("resolution")
                             # Try to parse height from resolution string (e.g. "1280x720")
                             try:
-                                height = int(resolution.split("x")[1])
+                                if "x" in resolution:
+                                    height = int(resolution.split("x")[1])
                             except:
                                 height = 0
                         else:
@@ -185,9 +192,12 @@ class VideoDownloader:
 
                         # Format entry for selection
                         filesize = fmt.get("filesize") or fmt.get("filesize_approx")
-                        if not filesize and video_duration > 0 and fmt.get("tbr"):
-                            # Estimate filesize from bitrate: (tbr * 1024 * duration) / 8 bytes
-                            filesize = int((fmt.get("tbr") * 1024 * video_duration) / 8)
+                        if not filesize and video_duration > 0 and (fmt.get("tbr") or fmt.get("vbr")):
+                            # Estimate filesize from bitrate
+                            # filesize = (bitrate in bits/sec * duration) / 8
+                            tbr = fmt.get("tbr") or fmt.get("vbr")
+                            if tbr:
+                                filesize = int((tbr * 1024 * video_duration) / 8)
                             
                         format_entry = {
                             "format_id": fmt["format_id"],
@@ -201,17 +211,18 @@ class VideoDownloader:
                         }
 
                         # Check for video formats (including Apple HLS/m3u8)
-                        is_video = (fmt_vcodec != "none" and fmt_vcodec is not None)
+                        is_video = (fmt_vcodec and fmt_vcodec != "none")
                         
                         # Allow m3u8 formats if they are video (often needed for iOS client)
-                        if is_video and ("m3u8" in protocol or "http" in protocol or "https" in protocol):
-                            # Deduplicate by height/resolution
-                            if height > 0 and height not in seen_video_qualities:
-                                video_formats.append(format_entry)
-                                seen_video_qualities.add(height)
+                        if is_video:
+                            # If it's HLS/m3u8, it might not have filesize, but we should still allow it
+                            if "m3u8" in protocol or "http" in protocol or "https" in protocol:
+                                if height > 0 and height not in seen_video_qualities:
+                                    video_formats.append(format_entry)
+                                    seen_video_qualities.add(height)
                         
-                        # Check for audio formats (skip m3u8 audio for now if we can)
-                        elif fmt_acodec != "none" and fmt_acodec is not None:
+                        # Check for audio formats
+                        elif fmt_acodec and fmt_acodec != "none":
                             # Use bitrate as quality identifier
                             abr = fmt.get("abr", 0) or 0
                             if abr > 0 and abr not in seen_audio_qualities:
