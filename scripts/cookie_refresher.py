@@ -92,7 +92,8 @@ class CookieRefresher:
         ]
         for lock_file in lock_files:
             try:
-                if os.path.exists(lock_file):
+                # Use lexists to detect broken symlinks (common for SingletonLock)
+                if os.path.lexists(lock_file):
                     os.remove(lock_file)
                     logger.info(f"Removed lock file: {lock_file}")
             except Exception as e:
