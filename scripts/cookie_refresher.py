@@ -23,17 +23,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Path must match where downloader.py expects it
-COOKIES_FILE_PATH = "/app/cookies.txt"
-# Persistent browser profile directory
-BROWSER_PROFILE_DIR = "/app/browser_profile"
+# Determine base path - works in Docker (/app) or locally
+def get_base_path():
+    if os.path.exists("/app") and os.access("/app", os.W_OK):
+        return "/app"
+    # Local development - use script directory's parent
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+BASE_PATH = get_base_path()
+COOKIES_FILE_PATH = os.path.join(BASE_PATH, "cookies.txt")
+BROWSER_PROFILE_DIR = os.path.join(BASE_PATH, "browser_profile")
 
 
 class CookieRefresher:
     def __init__(self):
         self.xvfb_process = None
         # Ensure profile directory exists
-        os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
+        try:
+            os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not create browser profile dir: {e}")
 
     def start_xvfb(self):
         """Start Xvfb if on Linux"""
@@ -74,9 +83,28 @@ class CookieRefresher:
         if "DISPLAY" in os.environ:
             del os.environ["DISPLAY"]
 
+    def cleanup_profile_locks(self):
+        """Remove browser profile lock files to prevent locking errors"""
+        lock_files = [
+            os.path.join(BROWSER_PROFILE_DIR, "SingletonLock"),
+            os.path.join(BROWSER_PROFILE_DIR, "SingletonSocket"),
+            os.path.join(BROWSER_PROFILE_DIR, "SingletonCookie"),
+        ]
+        for lock_file in lock_files:
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+                    logger.info(f"Removed lock file: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Could not remove lock file {lock_file}: {e}")
+
     async def refresh(self):
         """Refreshes YouTube cookies using persistent browser profile"""
         logger.info("Starting cookie refresh process...")
+        
+        # Clean up any leftover lock files from previous runs
+        self.cleanup_profile_locks()
+        
         self.start_xvfb()
 
         async with async_playwright() as p:
