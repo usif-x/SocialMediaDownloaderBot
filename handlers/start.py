@@ -44,23 +44,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
-        f"🎥 I'm a YouTube Downloader Bot. I can help you download videos and audio from YouTube.\n\n"
-        f"🎯 *How to use:*\n"
-        f"1️⃣ Send me a YouTube video link\n"
-        f"2️⃣ I'll fetch the video information\n"
-        f"3️⃣ Choose format type (Video/Audio)\n"
-        f"4️⃣ Select your preferred quality\n"
-        f"5️⃣ Get your media!\n\n"
-        f"🔍 *Need to search for videos?*\n"
-        f"Type `@vid [search terms]` in any chat to search for videos\n"
-        f"Example: `@vid python tutorial`\n"
-        f"Then send me the video link to download!\n\n"
-        f"📋 *Available Commands:*\n"
-        f"/help - View all commands and help\n"
-        f"/history - View your download history\n"
-        f"/restore\\_ID - Restore previous downloads\n\n"
-        f"Just send me a YouTube link! 🚀\n\n"
-        f"👨‍💻 *Developer:* @YousseifMuhammed"
+        f"🎥 I'm a YouTube Downloader Bot.\n\n"
+        f"🔍 Type `@vid [search query]` to search for videos\n"
+        f"OR\n"
+        f"🔗 Send me a YouTube link to get started 🚀\n\n"
+        f"ℹ️ For help, use /help\n\n"
+        f"👨‍💻 Developer: @YousseifMuhammed"
     )
 
     await update.message.reply_text(welcome_message, parse_mode="Markdown")
