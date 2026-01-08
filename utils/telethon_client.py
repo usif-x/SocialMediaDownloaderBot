@@ -175,9 +175,22 @@ class TelethonUploader:
                 )
                 upload_kwargs["attributes"] = attributes
 
-            sent_message = await self.client.send_file(
-                channel, file_path, **upload_kwargs
-            )
+            try:
+                sent_message = await self.client.send_file(
+                    channel, file_path, **upload_kwargs
+                )
+            except (FileNotFoundError, OSError) as e:
+                # If thumbnail was used, try without it
+                if "thumb" in upload_kwargs:
+                    logger.warning(
+                        f"Failed to upload with thumbnail: {e}. Retrying without thumbnail."
+                    )
+                    del upload_kwargs["thumb"]
+                    sent_message = await self.client.send_file(
+                        channel, file_path, **upload_kwargs
+                    )
+                else:
+                    raise e
 
             if sent_message:
                 logger.info(
