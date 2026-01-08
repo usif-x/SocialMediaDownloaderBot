@@ -12,6 +12,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -27,7 +28,9 @@ from handlers import (
     history_pagination_callback,
     restore_command,
     start_command,
-    refresh_cookies_command,
+    get_admin_handler,
+    check_subscription,
+    subscription_callback_handler,
 )
 
 # Configure logging
@@ -92,12 +95,17 @@ def main():
         .build()
     )
 
+    # Add middleware for subscription check (High Priority)
+    application.add_handler(TypeHandler(Update, check_subscription), group=-1)
+
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("restore", restore_command))
-    application.add_handler(CommandHandler("refresh", refresh_cookies_command))
+    
+    # Admin Handler
+    application.add_handler(get_admin_handler())
 
     # Handle /restore_ID pattern - must come before URL handler
     from telegram.ext import MessageHandler
@@ -130,6 +138,11 @@ def main():
     # Add callback query handler for history pagination
     application.add_handler(
         CallbackQueryHandler(history_pagination_callback, pattern="^history_page_")
+    )
+
+    # Add callback query handler for subscription check
+    application.add_handler(
+        CallbackQueryHandler(subscription_callback_handler, pattern="^check_subscription$")
     )
 
     # Add message handler for URLs - MUST be last

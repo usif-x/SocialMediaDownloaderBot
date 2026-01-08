@@ -3,7 +3,8 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from database import User, get_db
+from config import settings
+from database import User, BotSetting, get_db
 from utils import VideoDownloader
 
 
@@ -25,13 +26,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 language_code=user.language_code,
             )
             db.add(db_user)
+            db.commit() # Commit to save user and get count correctly
+
+            # Check for notification setting
+            setting = db.query(BotSetting).filter(BotSetting.key == "notify_new_user").first()
+            if setting and setting.value == "true":
+                total_users = db.query(User).count()
+                
+                # Send notification to admin
+                try:
+                    admin_msg = (
+                        "🆕 **New User Joined!**\n\n"
+                        f"👤 **Name:** {user.full_name}\n"
+                        f"📧 **Username:** @{user.username if user.username else 'N/A'}\n"
+                        f"🆔 **ID:** `{user.id}`\n\n"
+                        f"📊 **Total Users:** `{total_users}`"
+                    )
+                    await context.bot.send_message(
+                        chat_id=settings.ADMIN_ID, 
+                        text=admin_msg, 
+                        parse_mode="Markdown"
+                    )
+                except Exception as notify_error:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to send new user notification: {notify_error}")
+
         else:
             db_user.username = user.username
             db_user.first_name = user.first_name
             db_user.last_name = user.last_name
             db_user.last_activity = datetime.utcnow()
-
-        db.commit()
+            db.commit()
     except Exception as e:
         import logging
 

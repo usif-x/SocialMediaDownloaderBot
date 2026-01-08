@@ -3,7 +3,8 @@ from .download import handle_url
 from .history import history_command, history_pagination_callback, restore_command
 from .start import help_command, start_command
 
-from .admin import refresh_cookies_command
+from .admin import get_admin_handler
+from .subscription import check_subscription, subscription_callback_handler
 
 __all__ = [
     "start_command",
@@ -13,5 +14,7 @@ __all__ = [
     "history_command",
     "history_pagination_callback",
     "restore_command",
-    "refresh_cookies_command",
+    "get_admin_handler",
+    "check_subscription",
+    "subscription_callback_handler",
 ]

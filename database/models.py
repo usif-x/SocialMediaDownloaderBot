@@ -66,3 +66,31 @@ class Download(Base):
 
     def __repr__(self):
         return f"<Download(id={self.id}, title={self.title}, status={self.status})>"
+
+
+class MandatoryChannel(Base):
+    """Mandatory subscription channels"""
+
+    __tablename__ = "mandatory_channels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel_id = Column(BigInteger, unique=True, nullable=False)
+    channel_name = Column(String(255), nullable=True)
+    channel_link = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<MandatoryChannel(id={self.id}, name={self.channel_name})>"
+
+
+class BotSetting(Base):
+    """Bot configuration settings"""
+
+    __tablename__ = "bot_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(50), unique=True, nullable=False)
+    value = Column(String(255), nullable=True)
+    
+    def __repr__(self):
+        return f"<BotSetting(key={self.key}, value={self.value})>"

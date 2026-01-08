@@ -10,6 +10,7 @@ class Settings:
 
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    ADMIN_ID: int = int(os.getenv("ADMIN_ID", 0))
 
     # Telegram User Client (for large file uploads)
     TELEGRAM_API_ID: int = int(os.getenv("TELEGRAM_API_ID") or 0)
