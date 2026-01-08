@@ -4,7 +4,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from handlers.download import download_and_send_video, safe_edit_message
-from utils import redis_client
+from utils import redis_client, VideoDownloader
+from database import Download, get_db
+import asyncio
+import logging
 
 
 async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -374,3 +377,68 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=reply_markup,
                 parse_mode="Markdown",
             )
+    
+    # Handle convert to audio
+    elif action == "convert":  # convert_audio_{download_id} -> split -> ['convert', 'audio', '{id}']
+        if len(callback_data) < 3 or callback_data[1] != "audio":
+            await query.answer("❌ Invalid request")
+            return
+
+        download_id = int(callback_data[2])
+        user_id = update.effective_user.id
+        
+        await query.answer("🎵 Converting to audio...")
+        
+        # Send a new message for the conversion process
+        processing_msg = await context.bot.send_message(
+            chat_id=user_id,
+            text="🔄 Fetching video info for conversion..."
+        )
+        
+        db = get_db()
+        try:
+            download = db.query(Download).filter(Download.id == download_id).first()
+            if not download:
+                await processing_msg.edit_text("❌ Download record not found.")
+                return
+                
+            url = download.url
+            
+            # Re-fetch info
+            downloader = VideoDownloader()
+            loop = asyncio.get_event_loop()
+            video_info = await loop.run_in_executor(
+                None, lambda: downloader.get_video_info(url)
+            )
+            
+            if not video_info:
+                await processing_msg.edit_text("❌ Failed to fetch video info.")
+                return
+                
+            # Update cache
+            redis_client.set_video_info(user_id, video_info)
+            context.user_data[f"video_info_{download_id}"] = video_info
+            
+            # Update info in DB if changed
+            download.title = video_info["title"]
+            db.commit()
+
+            # Start download process for audio
+            # We pass processing_msg so it updates that message
+            await download_and_send_video(
+                update,
+                context,
+                download_id,
+                "audio",
+                "Best",
+                "bestaudio",
+                user_id,
+                processing_msg
+            )
+            
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in convert to audio: {e}", exc_info=True)
+            await safe_edit_message(processing_msg, "❌ An error occurred during conversion.")
+        finally:
+            db.close()

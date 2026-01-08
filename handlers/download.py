@@ -605,11 +605,26 @@ async def download_and_send_video(
                 # Now copy the message from channel to user using Bot API
                 await safe_edit_message(download_msg, "📤 Sending file to you...")
 
+                # Create convert to audio button
+                convert_markup = None
+                if format_type == "video":
+                    convert_markup = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎵 Convert to Audio",
+                                    callback_data=f"convert_audio_{download_id}",
+                                )
+                            ]
+                        ]
+                    )
+
                 try:
                     sent_message = await context.bot.copy_message(
                         chat_id=user_id,
                         from_chat_id=channel_id,
                         message_id=message_id,
+                        reply_markup=convert_markup,
                     )
                     if sent_message and hasattr(sent_message, "video"):
                         file_id = (
@@ -697,15 +712,45 @@ async def download_and_send_video(
                     if thumbnail_path and os.path.exists(thumbnail_path):
                         thumbnail_file = open(thumbnail_path, "rb")
 
+                    # Create convert to audio button
+                    convert_markup = InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🎵 Convert to Audio",
+                                    callback_data=f"convert_audio_{download_id}",
+                                )
+                            ]
+                        ]
+                    )
+
                     try:
+                        # Determine width/height
+                        video_width = video_info.get("width", 0)
+                        video_height = video_info.get("height", 0)
+                        
+                        # Note: video_info['video_formats'] is used to populate keyboard
+                        # We try to find the selected format to get specific dimensions
+                        if format_id and video_info.get("video_formats"):
+                            for fmt in video_info["video_formats"]:
+                                if str(fmt.get("format_id")) == str(format_id):
+                                    if fmt.get("width") and fmt.get("height"):
+                                        video_width = fmt["width"]
+                                        video_height = fmt["height"]
+                                    break
+
                         sent_message = await context.bot.send_video(
                             chat_id=user_id,
                             video=media_file,
                             caption=caption,
                             thumbnail=thumbnail_file,
+                            duration=video_info.get("duration", 0),
+                            width=video_width,
+                            height=video_height,
                             supports_streaming=True,
                             read_timeout=120,
                             write_timeout=120,
+                            reply_markup=convert_markup,
                         )
                         if sent_message.video:
                             file_id = sent_message.video.file_id

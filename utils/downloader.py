@@ -402,6 +402,8 @@ class VideoDownloader:
                     "title": info.get("title", "Unknown"),
                     "duration": info.get("duration") or 0,
                     "views": info.get("view_count") or 0,
+                    "width": info.get("width") or 0,
+                    "height": info.get("height") or 0,
                     "uploader": info.get("uploader")
                     or info.get("channel")
                     or "Unknown",
@@ -522,8 +524,15 @@ class VideoDownloader:
                 {
                     "key": "FFmpegVideoConvertor",
                     "preferedformat": "mp4",
-                }
+                },
+                {
+                    "key": "FFmpegMetadata",
+                },
+                {
+                    "key": "EmbedThumbnail",
+                },
             ]
+            ydl_opts["writethumbnail"] = True
             # Ensure ffmpeg merges audio and video
             ydl_opts["keepvideo"] = False
         else:
