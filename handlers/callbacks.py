@@ -3,7 +3,7 @@ import ast
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from handlers.download import download_and_send_video
+from handlers.download import download_and_send_video, safe_edit_message
 from utils import redis_client
 
 
@@ -119,7 +119,11 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Add Back button to return to type selection
         keyboard.append(
-            [InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_type_{download_id}")]
+            [
+                InlineKeyboardButton(
+                    "⬅️ Back", callback_data=f"back_to_type_{download_id}"
+                )
+            ]
         )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -226,7 +230,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
     # Handle retry button
     elif action == "retry":
         retry_type = callback_data[1] if len(callback_data) > 1 else None
-        
+
         # Handle retry_yt_{video_id} - YouTube video ID in callback
         if retry_type == "yt" and len(callback_data) >= 3:
             video_id = callback_data[2]
@@ -257,13 +261,17 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
     # Handle back to type selection
     elif action == "back":
-        if len(callback_data) < 4 or callback_data[1] != "to" or callback_data[2] != "type":
+        if (
+            len(callback_data) < 4
+            or callback_data[1] != "to"
+            or callback_data[2] != "type"
+        ):
             await query.answer("❌ Invalid action.")
             return
-            
+
         download_id = int(callback_data[3])
         user_id = update.effective_user.id
-        
+
         # Get video info from cache
         video_info_str = redis_client.get_video_info(user_id)
         if video_info_str:
@@ -275,10 +283,10 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 "❌ Session expired. Please send the link again."
             )
             return
-        
+
         # Rebuild type selection keyboard
         keyboard = []
-        
+
         if video_info.get("video_formats"):
             keyboard.append(
                 [
@@ -287,7 +295,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     )
                 ]
             )
-        
+
         if video_info.get("audio_formats"):
             keyboard.append(
                 [
@@ -296,7 +304,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     )
                 ]
             )
-        
+
         if video_info.get("image_formats"):
             keyboard.append(
                 [
@@ -305,15 +313,15 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     )
                 ]
             )
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         # Rebuild original message
         has_video = video_info.get("has_video", False)
         has_image = video_info.get("has_image", False)
-        
+
         from utils import format_duration, format_views
-        
+
         if has_image and not has_video:
             info_message = (
                 f"🖼 *Image Information*\n\n"
@@ -333,7 +341,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 f"👁 *Views:* {format_views(video_info['views'])}\n\n"
                 f"🎯 *Select Format Type:*"
             )
-        
+
         # Edit message back to type selection
         if query.message.photo:
             try:
