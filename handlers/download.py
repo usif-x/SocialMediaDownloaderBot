@@ -185,9 +185,7 @@ async def handle_url(
         # Create format type selection keyboard
         keyboard = []
 
-        # Use has_video/has_audio/has_image flags instead of checking lists
-        # (empty lists are falsy in Python)
-        if has_video:
+        if video_info.get("video_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(
@@ -196,7 +194,7 @@ async def handle_url(
                 ]
             )
 
-        if has_audio:
+        if video_info.get("audio_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(
@@ -205,7 +203,7 @@ async def handle_url(
                 ]
             )
 
-        if has_image:
+        if video_info.get("image_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(

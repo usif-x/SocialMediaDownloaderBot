@@ -216,20 +216,10 @@ class VideoDownloader:
                             if tbr:
                                 filesize = int((tbr * 1024 * video_duration) / 8)
 
-                        # Determine quality string
-                        quality = resolution
-                        if resolution == "Audio Only":
-                            abr = fmt.get("abr", 0) or 0
-                            if abr > 0:
-                                quality = f"{int(abr)}kbps"
-                            else:
-                                quality = "Best"
-
                         format_entry = {
                             "format_id": fmt["format_id"],
                             "ext": fmt.get("ext", "mp4"),
                             "resolution": resolution,
-                            "quality": quality,
                             "filesize": filesize,
                             "vcodec": fmt_vcodec,
                             "acodec": fmt_acodec,
