@@ -112,13 +112,23 @@ class VideoDownloader:
                 )
 
                 # Check if this is an image (Instagram, Twitter images, etc.)
+                # IMPORTANT: YouTube thumbnails/storyboards should NOT be classified as images
                 is_image = False
                 image_urls = []
 
-                # Check for image formats in formats list
-                if "formats" in info and info["formats"]:
+                # Get platform/extractor name
+                platform = info.get("extractor", "").lower()
+
+                # Only check for image formats if NOT YouTube
+                # YouTube has image formats (thumbnails/storyboards) but they're not the main content
+                if "formats" in info and info["formats"] and "youtube" not in platform:
                     for fmt in info["formats"]:
                         ext = fmt.get("ext", "").lower()
+                        # Skip storyboards and thumbnails
+                        format_note = fmt.get("format_note", "").lower()
+                        if "storyboard" in format_note or "thumbnail" in format_note:
+                            continue
+
                         if ext in ["jpg", "jpeg", "png", "webp", "gif"]:
                             is_image = True
                             image_urls.append(
@@ -130,11 +140,15 @@ class VideoDownloader:
                                 }
                             )
 
-                # Also check direct URL for images
+                # Also check direct URL for images (but not for YouTube)
                 direct_url = info.get("url", "")
-                if direct_url and any(
-                    direct_url.lower().endswith(ext)
-                    for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+                if (
+                    direct_url
+                    and "youtube" not in platform
+                    and any(
+                        direct_url.lower().endswith(ext)
+                        for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+                    )
                 ):
                     is_image = True
                     ext = direct_url.split(".")[-1].lower().split("?")[0]
@@ -147,8 +161,14 @@ class VideoDownloader:
                         }
                     )
 
-                # Check thumbnail as fallback for image posts
-                if not has_video and not has_audio and info.get("thumbnail"):
+                # Check thumbnail as fallback for image posts (but NOT for YouTube)
+                # YouTube always has thumbnails, but they're not the main content
+                if (
+                    not has_video
+                    and not has_audio
+                    and info.get("thumbnail")
+                    and "youtube" not in platform
+                ):
                     thumb = info.get("thumbnail", "")
                     if thumb and not image_urls:
                         is_image = True
@@ -178,8 +198,9 @@ class VideoDownloader:
                         fmt_acodec = fmt.get("acodec", "none")
                         protocol = fmt.get("protocol", "")
 
-                        # Special handling for storyboard
-                        if "storyboard" in fmt.get("format_note", ""):
+                        # Special handling for storyboard and thumbnails
+                        format_note = fmt.get("format_note", "").lower()
+                        if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
 
                         # Determine resolution
@@ -230,23 +251,49 @@ class VideoDownloader:
                         # Check for video formats (including Apple HLS/m3u8)
                         is_video = fmt_vcodec and fmt_vcodec != "none"
 
-                        # Allow m3u8 formats if they are video (often needed for iOS client)
-                        if is_video:
-                            # If it's HLS/m3u8, it might not have filesize, but we should still allow it
-                            if (
-                                "m3u8" in protocol
-                                or "http" in protocol
-                                or "https" in protocol
-                            ):
-                                if height > 0 and height not in seen_video_qualities:
-                                    video_formats.append(format_entry)
-                                    seen_video_qualities.add(height)
+                        # Add all video formats with valid height
+                        if (
+                            is_video
+                            and height > 0
+                            and height not in seen_video_qualities
+                        ):
+                            # Add quality label based on height
+                            if height >= 2160:
+                                quality_label = "4K (2160p)"
+                            elif height >= 1440:
+                                quality_label = "2K (1440p)"
+                            elif height >= 1080:
+                                quality_label = "Full HD (1080p)"
+                            elif height >= 720:
+                                quality_label = "HD (720p)"
+                            elif height >= 480:
+                                quality_label = "SD (480p)"
+                            elif height >= 360:
+                                quality_label = "360p"
+                            elif height >= 240:
+                                quality_label = "240p"
+                            else:
+                                quality_label = "144p"
+
+                            format_entry["quality"] = quality_label
+                            video_formats.append(format_entry)
+                            seen_video_qualities.add(height)
 
                         # Check for audio formats
                         elif fmt_acodec and fmt_acodec != "none":
                             # Use bitrate as quality identifier
                             abr = fmt.get("abr", 0) or 0
                             if abr > 0 and abr not in seen_audio_qualities:
+                                # Add quality label based on bitrate
+                                if abr >= 256:
+                                    quality_label = f"High ({int(abr)}kbps)"
+                                elif abr >= 192:
+                                    quality_label = f"Medium ({int(abr)}kbps)"
+                                else:
+                                    quality_label = f"Low ({int(abr)}kbps)"
+
+                                format_entry["quality"] = quality_label
+                                format_entry["abr"] = abr
                                 audio_formats.append(format_entry)
                                 seen_audio_qualities.add(abr)
 
@@ -284,29 +331,44 @@ class VideoDownloader:
                 # This is a fallback for platforms like Instagram
                 if not video_formats and not audio_formats and not is_image:
                     if info.get("url") or info.get("formats"):
-                        # Check if any format exists
-                        has_any_format = bool(info.get("formats"))
-                        video_formats.append(
-                            {
-                                "format_id": "best",
-                                "quality": "Best",
-                                "ext": "mp4",
-                                "filesize": 0,
-                                "has_audio": True,
-                            }
-                        )
-                        audio_formats.append(
-                            {
-                                "format_id": "bestaudio",
-                                "quality": "Best",
-                                "ext": "m4a",
-                                "filesize": 0,
-                            }
-                        )
+                        # Add fallback formats based on what content exists
+                        if has_video:
+                            video_formats.append(
+                                {
+                                    "format_id": "best",
+                                    "quality": "Best",
+                                    "ext": "mp4",
+                                    "filesize": 0,
+                                    "has_audio": has_audio,
+                                }
+                            )
+                        if has_audio:
+                            audio_formats.append(
+                                {
+                                    "format_id": "bestaudio",
+                                    "quality": "Best",
+                                    "ext": "m4a",
+                                    "filesize": 0,
+                                }
+                            )
 
-                # Extra fallback: if nothing detected but we have thumbnail, treat as image
-                if not video_formats and not audio_formats and not image_formats:
+                # Extra fallback: if nothing detected but we have thumbnail AND not YouTube, treat as image
+                if (
+                    not video_formats
+                    and not audio_formats
+                    and not image_formats
+                    and "youtube" not in platform
+                ):
                     if info.get("thumbnail"):
+                        is_image = True
+                        image_urls.append(
+                            {
+                                "url": info.get("thumbnail"),
+                                "ext": "jpg",
+                                "width": 0,
+                                "height": 0,
+                            }
+                        )
                         image_formats.append(
                             {
                                 "url": info.get("thumbnail"),
@@ -322,7 +384,7 @@ class VideoDownloader:
                         key=lambda x: (x.get("width", 0) * x.get("height", 0)),
                         reverse=True,
                     )
-                    for img in image_urls[:5]:  # Limit to 5 images
+                    for img in image_urls[:5]:  # Limit to top 5
                         width = img.get("width", 0)
                         height = img.get("height", 0)
                         quality = (
