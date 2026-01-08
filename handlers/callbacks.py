@@ -20,7 +20,9 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
     # Handle format type selection (video/audio)
     if action == "type":
         if len(callback_data) < 3:
-            await query.edit_message_text("❌ Invalid selection. Please try again.")
+            await safe_edit_message(
+                query.message, "❌ Invalid selection. Please try again."
+            )
             return
 
         format_type = callback_data[1]  # 'video', 'audio', or 'image'
@@ -34,8 +36,8 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
         elif f"video_info_{download_id}" in context.user_data:
             video_info = context.user_data[f"video_info_{download_id}"]
         else:
-            await query.edit_message_text(
-                "❌ Session expired. Please send the link again."
+            await safe_edit_message(
+                query.message, "❌ Session expired. Please send the link again."
             )
             return
 
@@ -43,7 +45,9 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
         formats = video_info.get(f"{format_type}_formats", [])
 
         if not formats:
-            await query.edit_message_text("❌ No formats available for this type.")
+            await safe_edit_message(
+                query.message, "❌ No formats available for this type."
+            )
             return
 
         # Create quality selection keyboard
@@ -155,13 +159,15 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     parse_mode="Markdown",
                 )
             except:
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query.message,
                     updated_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown",
                 )
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query.message,
                 updated_text,
                 reply_markup=reply_markup,
                 parse_mode="Markdown",
@@ -170,7 +176,9 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
     # Handle quality selection
     elif action == "quality":
         if len(callback_data) < 5:
-            await query.edit_message_text("❌ Invalid selection. Please try again.")
+            await safe_edit_message(
+                query.message, "❌ Invalid selection. Please try again."
+            )
             return
 
         format_type = callback_data[1]  # 'video', 'audio', or 'image'
@@ -205,12 +213,14 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     parse_mode="Markdown",
                 )
             except:
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query.message,
                     updated_text,
                     parse_mode="Markdown",
                 )
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query.message,
                 updated_text,
                 parse_mode="Markdown",
             )
@@ -246,8 +256,8 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         if not url:
             await query.answer("❌ Session expired. Please send the link again.")
-            await query.edit_message_text(
-                "❌ Session expired. Please send the link again."
+            await safe_edit_message(
+                query.message, "❌ Session expired. Please send the link again."
             )
             return
 
@@ -279,8 +289,8 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
         elif f"video_info_{download_id}" in context.user_data:
             video_info = context.user_data[f"video_info_{download_id}"]
         else:
-            await query.edit_message_text(
-                "❌ Session expired. Please send the link again."
+            await safe_edit_message(
+                query.message, "❌ Session expired. Please send the link again."
             )
             return
 
@@ -351,13 +361,15 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     parse_mode="Markdown",
                 )
             except:
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query.message,
                     info_message,
                     reply_markup=reply_markup,
                     parse_mode="Markdown",
                 )
         else:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query.message,
                 info_message,
                 reply_markup=reply_markup,
                 parse_mode="Markdown",
