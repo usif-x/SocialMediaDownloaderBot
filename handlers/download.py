@@ -214,50 +214,27 @@ async def handle_url(
                 ]
             )
 
-        if not keyboard:
-            # No formats available, try best
-            info_message = info_message.replace(
-                "*Select Format Type:*", "⬇️ Starting download..."
-            )
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # Send thumbnail with caption
-            thumbnail_url = video_info.get("thumbnail")
-            if thumbnail_url:
-                try:
-                    await processing_msg.delete()
-                    await update.message.reply_photo(
-                        photo=thumbnail_url, caption=info_message, parse_mode="Markdown"
-                    )
-                except:
-                    await processing_msg.edit_text(info_message, parse_mode="Markdown")
-            else:
-                await processing_msg.edit_text(info_message, parse_mode="Markdown")
-
-            await download_and_send_video(
-                update, context, download.id, "video", "best", None, user.id
-            )
-        else:
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # Send thumbnail with caption and keyboard
-            thumbnail_url = video_info.get("thumbnail")
-            if thumbnail_url:
-                try:
-                    await processing_msg.delete()
-                    await update.message.reply_photo(
-                        photo=thumbnail_url,
-                        caption=info_message,
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown",
-                    )
-                except:
-                    await processing_msg.edit_text(
-                        info_message, reply_markup=reply_markup, parse_mode="Markdown"
-                    )
-            else:
+        # Send thumbnail with caption and keyboard (always show selection if any type is available)
+        thumbnail_url = video_info.get("thumbnail")
+        if thumbnail_url:
+            try:
+                await processing_msg.delete()
+                await update.message.reply_photo(
+                    photo=thumbnail_url,
+                    caption=info_message,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+            except:
                 await processing_msg.edit_text(
                     info_message, reply_markup=reply_markup, parse_mode="Markdown"
                 )
+        else:
+            await processing_msg.edit_text(
+                info_message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
 
     except Exception as e:
         logger = logging.getLogger(__name__)
