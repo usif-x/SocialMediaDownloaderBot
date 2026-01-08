@@ -512,7 +512,7 @@ async def download_and_send_video(
         caption = f"🎬 {video_info['title']}\n\n💾 Quality: {quality}"
 
         # Get performer (channel name) for audio
-        performer = video_info.get("uploader", "Unknown Artist")
+        performer = video_info.get("uploader") or "Unknown Artist"
 
         # For audio, update caption to include artist
         if format_type == "audio":
@@ -530,10 +530,24 @@ async def download_and_send_video(
                 os.makedirs(thumbnail_dir, exist_ok=True)
                 thumbnail_path = os.path.join(thumbnail_dir, f"thumb_{user_id}.jpg")
 
-                response = requests.get(thumbnail_url, timeout=10)
-                if response.status_code == 200:
-                    with open(thumbnail_path, "wb") as f:
-                        f.write(response.content)
+                def download_thumb():
+                    try:
+                        resp = requests.get(thumbnail_url, timeout=10)
+                        if resp.status_code == 200:
+                            with open(thumbnail_path, "wb") as f:
+                                f.write(resp.content)
+                            return True
+                    except:
+                        return False
+                    return False
+
+                # Run in executor
+                loop = asyncio.get_event_loop()
+                thumb_success = await loop.run_in_executor(None, download_thumb)
+                
+                if not thumb_success:
+                    thumbnail_path = None
+                    
         except Exception as e:
             logger.warning(f"Failed to download thumbnail: {e}")
             thumbnail_path = None

@@ -120,6 +120,12 @@ def main():
     application.add_handler(
         CallbackQueryHandler(handle_quality_selection, pattern="^back_to_type_")
     )
+    application.add_handler(
+        CallbackQueryHandler(handle_quality_selection, pattern="^convert_audio_")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_quality_selection, pattern="^retry_")
+    )
 
     # Add callback query handler for history pagination
     application.add_handler(
