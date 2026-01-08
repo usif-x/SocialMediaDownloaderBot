@@ -39,22 +39,35 @@ class VideoDownloader:
             "extract_flat": False,
             "socket_timeout": 30,
             "skip_download": True,
+            # Important: ignore format errors during info extraction
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
                 "instagram": {"skip": ["dash"]},
                 "youtube": {"player_client": ["android", "web"]},
             },
+            # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
         }
 
-        # Add cookie support
+        # Add cookie support for YouTube and other sites
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info(f"Using cookies file: {cookies_file}")
+            # Log cookie content for debugging
+            try:
+                with open(cookies_file, "r") as f:
+                    cookie_content = f.read()
+                    logger.info(
+                        f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to read cookies file for logging: {e}")
+        else:
+            logger.warning(f"No cookies file found at {cookies_file}")
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -65,6 +78,7 @@ class VideoDownloader:
                         logger.warning(
                             "Default extraction failed, trying iOS client fallback..."
                         )
+                        # Fallback for restricted videos (often work with iOS client)
                         ydl_opts["extractor_args"] = {
                             "youtube": {
                                 "player_client": [
@@ -76,32 +90,85 @@ class VideoDownloader:
                             }
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl_fallback:
-                            info = ydl_fallback.extract_info(url, download=False)
+                            try:
+                                info = ydl_fallback.extract_info(url, download=False)
+                            except yt_dlp.utils.DownloadError as fallback_e:
+                                logger.error(
+                                    f"iOS client fallback also failed: {fallback_e}"
+                                )
+                                raise fallback_e  # Re-raise the fallback error if it fails
                     else:
                         raise e
 
                 if not info:
                     return None
 
-                # Check content type from codecs
-                has_video_codec = (
+                # Check if this is a video or audio-only content
+                has_video = (
                     info.get("vcodec") != "none" and info.get("vcodec") is not None
                 )
-                has_audio_codec = (
+                has_audio = (
                     info.get("acodec") != "none" and info.get("acodec") is not None
                 )
 
-                platform = info.get("extractor", "").lower()
-                is_youtube = "youtube" in platform
+                # Check if this is an image (Instagram, Twitter images, etc.)
+                is_image = False
+                image_urls = []
 
-                # Initialize format lists
+                # Check for image formats in formats list
+                if "formats" in info and info["formats"]:
+                    for fmt in info["formats"]:
+                        ext = fmt.get("ext", "").lower()
+                        if ext in ["jpg", "jpeg", "png", "webp", "gif"]:
+                            is_image = True
+                            image_urls.append(
+                                {
+                                    "url": fmt.get("url"),
+                                    "ext": ext,
+                                    "width": fmt.get("width", 0),
+                                    "height": fmt.get("height", 0),
+                                }
+                            )
+
+                # Also check direct URL for images
+                direct_url = info.get("url", "")
+                if direct_url and any(
+                    direct_url.lower().endswith(ext)
+                    for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+                ):
+                    is_image = True
+                    ext = direct_url.split(".")[-1].lower().split("?")[0]
+                    image_urls.append(
+                        {
+                            "url": direct_url,
+                            "ext": ext,
+                            "width": info.get("width", 0),
+                            "height": info.get("height", 0),
+                        }
+                    )
+
+                # Check thumbnail as fallback for image posts
+                if not has_video and not has_audio and info.get("thumbnail"):
+                    thumb = info.get("thumbnail", "")
+                    if thumb and not image_urls:
+                        is_image = True
+                        image_urls.append(
+                            {
+                                "url": thumb,
+                                "ext": "jpg",
+                                "width": 0,
+                                "height": 0,
+                            }
+                        )
+
+                # Extract available formats - separate video and audio
                 video_formats = []
                 audio_formats = []
                 image_formats = []
 
+                # Get duration for filesize estimation
                 video_duration = info.get("duration") or 0
 
-                # Extract formats from yt-dlp
                 if "formats" in info and info["formats"]:
                     seen_video_qualities = set()
                     seen_audio_qualities = set()
@@ -109,166 +176,169 @@ class VideoDownloader:
                     for fmt in info["formats"]:
                         fmt_vcodec = fmt.get("vcodec", "none")
                         fmt_acodec = fmt.get("acodec", "none")
+                        protocol = fmt.get("protocol", "")
 
-                        # Skip storyboards and thumbnails
-                        format_note = fmt.get("format_note", "").lower()
-                        if "storyboard" in format_note or "thumbnail" in format_note:
+                        # Special handling for storyboard
+                        if "storyboard" in fmt.get("format_note", ""):
                             continue
 
-                        # Get height for video formats
+                        # Determine resolution
                         height = fmt.get("height") or 0
                         width = fmt.get("width") or 0
 
-                        # VIDEO FORMATS
-                        is_video_format = fmt_vcodec and fmt_vcodec != "none"
-
-                        if is_video_format:
-                            # Determine resolution
-                            if height > 0:
-                                resolution = f"{width}x{height}"
-                            elif (
-                                fmt.get("resolution")
-                                and fmt.get("resolution") != "audio only"
-                            ):
-                                resolution = fmt.get("resolution")
-                                try:
-                                    if "x" in resolution:
-                                        height = int(resolution.split("x")[1])
-                                except:
-                                    height = 0
-                            else:
-                                resolution = "Unknown"
+                        if height:
+                            resolution = f"{width}x{height}"
+                        elif (
+                            fmt.get("resolution")
+                            and fmt.get("resolution") != "audio only"
+                        ):
+                            resolution = fmt.get("resolution")
+                            # Try to parse height from resolution string (e.g. "1280x720")
+                            try:
+                                if "x" in resolution:
+                                    height = int(resolution.split("x")[1])
+                            except:
                                 height = 0
+                        else:
+                            resolution = "Audio Only"
+                            height = 0
 
-                            # Only add if we haven't seen this quality (or if height is 0, add as fallback)
-                            if height == 0 or height not in seen_video_qualities:
-                                # Estimate filesize
-                                filesize = fmt.get("filesize") or fmt.get(
-                                    "filesize_approx"
-                                )
-                                if not filesize and video_duration > 0:
-                                    tbr = fmt.get("tbr") or fmt.get("vbr")
-                                    if tbr:
-                                        filesize = int(
-                                            (tbr * 1024 * video_duration) / 8
-                                        )
+                        # Format entry for selection
+                        filesize = fmt.get("filesize") or fmt.get("filesize_approx")
+                        if (
+                            not filesize
+                            and video_duration > 0
+                            and (fmt.get("tbr") or fmt.get("vbr"))
+                        ):
+                            # Estimate filesize from bitrate
+                            # filesize = (bitrate in bits/sec * duration) / 8
+                            tbr = fmt.get("tbr") or fmt.get("vbr")
+                            if tbr:
+                                filesize = int((tbr * 1024 * video_duration) / 8)
 
-                                # Determine quality label
-                                if height >= 2160:
-                                    quality_label = "4K (2160p)"
-                                elif height >= 1440:
-                                    quality_label = "2K (1440p)"
-                                elif height >= 1080:
-                                    quality_label = "Full HD (1080p)"
-                                elif height >= 720:
-                                    quality_label = "HD (720p)"
-                                elif height >= 480:
-                                    quality_label = "SD (480p)"
-                                elif height >= 360:
-                                    quality_label = "360p"
-                                elif height >= 240:
-                                    quality_label = "240p"
-                                elif height >= 144:
-                                    quality_label = "144p"
-                                else:
-                                    # Fallback for formats without height
-                                    quality_label = fmt.get(
-                                        "format_note", "Unknown Quality"
-                                    )
+                        format_entry = {
+                            "format_id": fmt["format_id"],
+                            "ext": fmt.get("ext", "mp4"),
+                            "resolution": resolution,
+                            "filesize": filesize,
+                            "vcodec": fmt_vcodec,
+                            "acodec": fmt_acodec,
+                            "protocol": protocol,
+                            "height": height,
+                        }
 
-                                format_entry = {
-                                    "format_id": fmt["format_id"],
-                                    "ext": fmt.get("ext", "mp4"),
-                                    "resolution": resolution,
-                                    "filesize": filesize,
-                                    "quality": quality_label,
-                                    "height": height,
-                                    "vcodec": fmt_vcodec,
-                                    "acodec": fmt_acodec,
-                                }
+                        # Check for video formats (including Apple HLS/m3u8)
+                        is_video = fmt_vcodec and fmt_vcodec != "none"
 
-                                video_formats.append(format_entry)
-                                if height > 0:
+                        # Allow m3u8 formats if they are video (often needed for iOS client)
+                        if is_video:
+                            # If it's HLS/m3u8, it might not have filesize, but we should still allow it
+                            if (
+                                "m3u8" in protocol
+                                or "http" in protocol
+                                or "https" in protocol
+                            ):
+                                if height > 0 and height not in seen_video_qualities:
+                                    video_formats.append(format_entry)
                                     seen_video_qualities.add(height)
 
-                        # AUDIO FORMATS
+                        # Check for audio formats
                         elif fmt_acodec and fmt_acodec != "none":
+                            # Use bitrate as quality identifier
                             abr = fmt.get("abr", 0) or 0
-
-                            # Add audio format even if bitrate is unknown
-                            if abr == 0 or abr not in seen_audio_qualities:
-                                filesize = fmt.get("filesize") or fmt.get(
-                                    "filesize_approx"
-                                )
-
-                                # Determine quality label
-                                if abr >= 256:
-                                    quality_label = f"High ({int(abr)}kbps)"
-                                elif abr >= 192:
-                                    quality_label = f"Medium ({int(abr)}kbps)"
-                                elif abr > 0:
-                                    quality_label = f"Low ({int(abr)}kbps)"
-                                else:
-                                    quality_label = fmt.get("format_note", "Best")
-
-                                format_entry = {
-                                    "format_id": fmt["format_id"],
-                                    "ext": fmt.get("ext", "m4a"),
-                                    "quality": quality_label,
-                                    "filesize": filesize,
-                                    "abr": abr,
-                                    "acodec": fmt_acodec,
-                                }
-
+                            if abr > 0 and abr not in seen_audio_qualities:
                                 audio_formats.append(format_entry)
-                                if abr > 0:
-                                    seen_audio_qualities.add(abr)
+                                seen_audio_qualities.add(abr)
 
-                # Sort formats by quality
+                # Sort formats: higher resolution/bitrate first
                 video_formats.sort(key=lambda x: x.get("height", 0), reverse=True)
-                audio_formats.sort(key=lambda x: x.get("abr", 0), reverse=True)
+                audio_formats.sort(
+                    key=lambda x: x.get("filesize", 0) or 0, reverse=True
+                )
 
-                # CRITICAL FIX: Always add "Best" fallback if codec detection found content
-                # This ensures formats are NEVER empty for valid videos
-                if has_video_codec and not video_formats:
-                    logger.warning("No video formats extracted, adding 'Best' fallback")
+                # Always provide options even if no specific formats found
+                # This handles single-format videos (like Instagram)
+                if not video_formats and has_video:
                     video_formats.append(
                         {
                             "format_id": "best",
-                            "quality": "Best Available",
+                            "quality": "Best",
                             "ext": "mp4",
                             "filesize": 0,
-                            "height": 0,
-                            "has_audio": has_audio_codec,
+                            "has_audio": has_audio,
                         }
                     )
 
-                if has_audio_codec and not audio_formats:
-                    logger.warning("No audio formats extracted, adding 'Best' fallback")
+                # Always allow audio extraction if content has audio
+                if not audio_formats and has_audio:
                     audio_formats.append(
                         {
                             "format_id": "bestaudio",
-                            "quality": "Best Available",
+                            "quality": "Best",
                             "ext": "m4a",
                             "filesize": 0,
-                            "abr": 0,
                         }
                     )
 
-                # Final determination of what's available
-                has_video = bool(video_formats)
-                has_audio = bool(audio_formats)
-                has_image = bool(image_formats)
+                # If still no formats, check if there's a direct URL or formats exist
+                # This is a fallback for platforms like Instagram
+                if not video_formats and not audio_formats and not is_image:
+                    if info.get("url") or info.get("formats"):
+                        # Check if any format exists
+                        has_any_format = bool(info.get("formats"))
+                        video_formats.append(
+                            {
+                                "format_id": "best",
+                                "quality": "Best",
+                                "ext": "mp4",
+                                "filesize": 0,
+                                "has_audio": True,
+                            }
+                        )
+                        audio_formats.append(
+                            {
+                                "format_id": "bestaudio",
+                                "quality": "Best",
+                                "ext": "m4a",
+                                "filesize": 0,
+                            }
+                        )
 
-                # Log what was found
-                logger.info(
-                    f"Extracted formats - Video: {len(video_formats)}, "
-                    f"Audio: {len(audio_formats)}, Image: {len(image_formats)}"
-                )
+                # Extra fallback: if nothing detected but we have thumbnail, treat as image
+                if not video_formats and not audio_formats and not image_formats:
+                    if info.get("thumbnail"):
+                        image_formats.append(
+                            {
+                                "url": info.get("thumbnail"),
+                                "quality": "Original",
+                                "ext": "jpg",
+                            }
+                        )
+
+                # Build image formats list
+                if image_urls:
+                    # Sort by resolution (highest first)
+                    image_urls.sort(
+                        key=lambda x: (x.get("width", 0) * x.get("height", 0)),
+                        reverse=True,
+                    )
+                    for img in image_urls[:5]:  # Limit to 5 images
+                        width = img.get("width", 0)
+                        height = img.get("height", 0)
+                        quality = (
+                            f"{width}x{height}" if width and height else "Original"
+                        )
+                        image_formats.append(
+                            {
+                                "url": img["url"],
+                                "quality": quality,
+                                "ext": img["ext"],
+                            }
+                        )
 
                 return {
                     "title": info.get("title", "Unknown"),
-                    "duration": video_duration,
+                    "duration": info.get("duration") or 0,
                     "views": info.get("view_count") or 0,
                     "uploader": info.get("uploader")
                     or info.get("channel")
@@ -279,9 +349,9 @@ class VideoDownloader:
                     "video_formats": video_formats[:8],
                     "audio_formats": audio_formats[:8],
                     "image_formats": image_formats,
-                    "has_video": has_video,
-                    "has_audio": has_audio,
-                    "has_image": has_image,
+                    "has_video": bool(video_formats),
+                    "has_audio": bool(audio_formats),
+                    "has_image": bool(image_formats),
                 }
 
         except Exception as e:

@@ -105,6 +105,7 @@ async def handle_url(
             db.commit()
 
             # Extract YouTube video ID from URL for retry
+            # Patterns: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
             video_id = None
             patterns = [
                 r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})",
@@ -116,6 +117,7 @@ async def handle_url(
                     break
 
             if video_id:
+                # Use video ID in callback - much shorter than full URL
                 keyboard = [
                     [
                         InlineKeyboardButton(
@@ -124,6 +126,7 @@ async def handle_url(
                     ]
                 ]
             else:
+                # Fallback: store in context if we can't extract ID
                 context.user_data[f"retry_url_{user.id}"] = url
                 keyboard = [
                     [
@@ -152,17 +155,11 @@ async def handle_url(
         redis_client.set_video_info(user.id, video_info)
         context.user_data[f"video_info_{download.id}"] = video_info
 
-        # Get format availability - check the actual lists AND flags
-        video_formats = video_info.get("video_formats", [])
-        audio_formats = video_info.get("audio_formats", [])
-        image_formats = video_info.get("image_formats", [])
-
-        # Use both list check AND flags for better reliability
-        has_video = bool(video_formats) or video_info.get("has_video", False)
-        has_audio = bool(audio_formats) or video_info.get("has_audio", False)
-        has_image = bool(image_formats) or video_info.get("has_image", False)
-
         # Prepare info message based on content type
+        has_video = video_info.get("has_video", False)
+        has_audio = video_info.get("has_audio", False)
+        has_image = video_info.get("has_image", False)
+
         if has_image and not has_video:
             # Image content
             info_message = (
@@ -188,8 +185,7 @@ async def handle_url(
         # Create format type selection keyboard
         keyboard = []
 
-        # Add buttons based on what's available
-        if has_video:
+        if video_info.get("video_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(
@@ -198,7 +194,7 @@ async def handle_url(
                 ]
             )
 
-        if has_audio:
+        if video_info.get("audio_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(
@@ -207,7 +203,7 @@ async def handle_url(
                 ]
             )
 
-        if has_image:
+        if video_info.get("image_formats"):
             keyboard.append(
                 [
                     InlineKeyboardButton(
@@ -216,42 +212,53 @@ async def handle_url(
                 ]
             )
 
-        # If no formats detected at all (shouldn't happen with YouTube), show error
         if not keyboard:
-            await processing_msg.edit_text(
-                "❌ No downloadable formats found for this video.\n"
-                "This might be a private or unavailable video."
+            # No formats available, try best
+            info_message = info_message.replace(
+                "*Select Format Type:*", "⬇️ Starting download..."
             )
-            download.status = "failed"
-            download.error_message = "No formats available"
-            db.commit()
-            return
 
-        # Always show the keyboard with format options
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            # Send thumbnail with caption
+            thumbnail_url = video_info.get("thumbnail")
+            if thumbnail_url:
+                try:
+                    await processing_msg.delete()
+                    await update.message.reply_photo(
+                        photo=thumbnail_url, caption=info_message, parse_mode="Markdown"
+                    )
+                except:
+                    await processing_msg.edit_text(info_message, parse_mode="Markdown")
+            else:
+                await processing_msg.edit_text(info_message, parse_mode="Markdown")
 
-        # Send thumbnail with caption and keyboard
-        thumbnail_url = video_info.get("thumbnail")
-        if thumbnail_url:
-            try:
-                await processing_msg.delete()
-                await update.message.reply_photo(
-                    photo=thumbnail_url,
-                    caption=info_message,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to send photo: {e}")
+            await download_and_send_video(
+                update, context, download.id, "video", "best", None, user.id
+            )
+        else:
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Send thumbnail with caption and keyboard
+            thumbnail_url = video_info.get("thumbnail")
+            if thumbnail_url:
+                try:
+                    await processing_msg.delete()
+                    await update.message.reply_photo(
+                        photo=thumbnail_url,
+                        caption=info_message,
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown",
+                    )
+                except:
+                    await processing_msg.edit_text(
+                        info_message, reply_markup=reply_markup, parse_mode="Markdown"
+                    )
+            else:
                 await processing_msg.edit_text(
                     info_message, reply_markup=reply_markup, parse_mode="Markdown"
                 )
-        else:
-            await processing_msg.edit_text(
-                info_message, reply_markup=reply_markup, parse_mode="Markdown"
-            )
 
     except Exception as e:
+        logger = logging.getLogger(__name__)
         logger.error(f"Error in handle_url: {e}", exc_info=True)
         try:
             await processing_msg.edit_text(
@@ -276,11 +283,20 @@ async def safe_edit_message(message, text, parse_mode=None):
     """Safely edit a message whether it has text or caption"""
     try:
         if message.photo or message.video or message.audio or message.document:
+            # Message has media, edit caption
             await message.edit_caption(caption=text, parse_mode=parse_mode)
         else:
+            # Text-only message
             await message.edit_text(text, parse_mode=parse_mode)
-    except Exception:
-        pass
+    except Exception as e:
+        # If edit fails, try the other method as fallback
+        try:
+            if message.text:
+                await message.edit_text(text, parse_mode=parse_mode)
+            else:
+                await message.edit_caption(caption=text, parse_mode=parse_mode)
+        except:
+            pass  # Ignore if both fail
 
 
 async def download_and_send_video(
@@ -316,24 +332,21 @@ async def download_and_send_video(
 
         # Send downloading message or use existing one
         if existing_message:
+            # Update existing message
             current_text = existing_message.text or existing_message.caption or ""
-            # Truncate text if too long to append
-            if len(current_text) > 800:
-                current_text = current_text[:800] + "..."
-
             await safe_edit_message(
                 existing_message,
-                f"{current_text}\n\n⬇️ Downloading...\nPlease wait...",
+                f"{current_text}\n\n⬇️ Downloading...\nPlease wait, this may take a few moments.",
                 parse_mode="Markdown",
             )
             download_msg = existing_message
         else:
             download_msg = await context.bot.send_message(
                 chat_id=user_id,
-                text=f"⬇️ Downloading {format_type} in {quality}...\n\nPlease wait...",
+                text=f"⬇️ Downloading {format_type} in {quality}...\n\nPlease wait, this may take a few moments.",
             )
 
-        # Progress tracking
+        # Progress tracking with queue for thread-safe communication
         import queue
         import threading
 
@@ -341,9 +354,11 @@ async def download_and_send_video(
         stop_progress = threading.Event()
 
         async def progress_updater():
+            """Async task to update progress messages from queue"""
             last_text = ""
             while not stop_progress.is_set():
                 try:
+                    # Non-blocking check with timeout
                     text = progress_queue.get(timeout=0.5)
                     if text and text != last_text:
                         try:
@@ -357,7 +372,9 @@ async def download_and_send_video(
                     break
 
         def sync_progress_callback(percentage: float, status_text: str):
+            """Sync callback that puts progress in queue"""
             try:
+                # Clear old items and add new one
                 while not progress_queue.empty():
                     try:
                         progress_queue.get_nowait()
@@ -371,15 +388,23 @@ async def download_and_send_video(
         downloader = VideoDownloader()
 
         if format_type == "image":
+            # Handle image download - no progress needed
             image_formats = video_info.get("image_formats", [])
-            image_url = image_formats[0].get("url") if image_formats else None
-
-            # Fallback if no specific image format but info has thumbnail
-            if not image_url and video_info.get("thumbnail"):
-                image_url = video_info.get("thumbnail")
+            if format_id and format_id.isdigit():
+                idx = int(format_id)
+                if idx < len(image_formats):
+                    image_url = image_formats[idx].get("url")
+                else:
+                    image_url = image_formats[0].get("url") if image_formats else None
+            else:
+                # Best quality = first (highest res)
+                image_url = image_formats[0].get("url") if image_formats else None
 
             if not image_url:
                 await safe_edit_message(download_msg, "❌ Image URL not found")
+                download.status = "failed"
+                download.error_message = "Image URL not found"
+                db.commit()
                 return
 
             await safe_edit_message(download_msg, "⬇️ Downloading image...")
@@ -395,13 +420,18 @@ async def download_and_send_video(
             )
 
             if not file_path:
+                download.status = "failed"
+                download.error_message = error_msg or "Download failed"
+                db.commit()
                 await safe_edit_message(
-                    download_msg, f"❌ Download failed: {error_msg}"
+                    download_msg, f"❌ Download failed: {error_msg or 'Unknown error'}"
                 )
+                downloader.cleanup_user_files(user_id)
                 return
 
         else:
-            # Handle video/audio download
+            # Handle video/audio download with progress
+            # Start progress updater task
             progress_task = asyncio.create_task(progress_updater())
 
             loop = asyncio.get_event_loop()
@@ -417,6 +447,7 @@ async def download_and_send_video(
                 ),
             )
 
+            # Stop progress updater
             stop_progress.set()
             progress_task.cancel()
             try:
@@ -425,59 +456,113 @@ async def download_and_send_video(
                 pass
 
             if not file_path:
+                download.status = "failed"
+                download.error_message = error_msg or "Download failed"
+                db.commit()
                 await safe_edit_message(
                     download_msg, f"❌ Download failed: {error_msg or 'Unknown error'}"
                 )
+                # Clean up any leftover files
                 downloader.cleanup_user_files(user_id)
                 return
 
-        # Uploading logic
+        # Send video or audio
         await safe_edit_message(download_msg, "📤 Uploading...")
 
+        # Check file size
+        import os
+
         file_size = os.path.getsize(file_path)
-        bot_api_limit = 50 * 1024 * 1024
-        telethon_limit = 2000 * 1024 * 1024
+
+        # Telegram limits
+        bot_api_limit = 50 * 1024 * 1024  # 50MB for Bot API
+        telethon_limit = 2 * 1024 * 1024 * 1024  # 2GB for Telethon (user client)
+
         use_telethon = False
 
+        # If file exceeds Bot API limit, try Telethon
         if file_size > bot_api_limit:
             if file_size > telethon_limit:
-                await safe_edit_message(download_msg, "❌ File too large (>2GB).")
-                os.remove(file_path)
+                await safe_edit_message(
+                    download_msg,
+                    f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
+                    f"Maximum supported size is 2GB.\n\n"
+                    f"Please select a lower quality to reduce file size.",
+                )
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+                download.status = "failed"
+                download.error_message = (
+                    f"File too large: {file_size / (1024*1024):.1f}MB"
+                )
+                db.commit()
                 return
+
+            # Try to use Telethon for large files
             use_telethon = True
             await safe_edit_message(
-                download_msg, "📤 Uploading large file (using Telethon)..."
+                download_msg,
+                f"📤 Uploading large file ({file_size / (1024*1024):.1f}MB)...\n"
+                f"Using alternative upload method.\n"
+                f"This may take a while...",
             )
 
         caption = f"🎬 {video_info['title']}\n\n💾 Quality: {quality}"
-        performer = video_info.get("uploader", "Unknown")
 
+        # Get performer (channel name) for audio
+        performer = video_info.get("uploader", "Unknown Artist")
+
+        # For audio, update caption to include artist
         if format_type == "audio":
             caption = f"🎵 {video_info['title']}\n\n👤 Artist: {performer}\n💾 Quality: {quality}"
 
-        # Download thumbnail
+        # Download thumbnail for both audio and video
         thumbnail_path = None
         try:
             import requests
 
             thumbnail_url = video_info.get("thumbnail")
             if thumbnail_url:
+                # Download thumbnail
                 thumbnail_dir = os.path.join(os.path.dirname(file_path), "thumbnails")
                 os.makedirs(thumbnail_dir, exist_ok=True)
                 thumbnail_path = os.path.join(thumbnail_dir, f"thumb_{user_id}.jpg")
+
                 response = requests.get(thumbnail_url, timeout=10)
                 if response.status_code == 200:
                     with open(thumbnail_path, "wb") as f:
                         f.write(response.content)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to download thumbnail: {e}")
             thumbnail_path = None
 
+        # Send media and capture message/file IDs for restore feature
+        sent_message = None
+        file_id = None
+
+        # Use Telethon for large files
         if use_telethon:
             try:
-                # Mock progress for telethon
-                async def telethon_progress(percentage, current, total):
-                    pass
+                # Progress callback for Telethon upload
+                last_percentage = [0]  # Use list to modify in closure
 
+                async def telethon_progress(percentage, current, total):
+                    # Update only every 10%
+                    if int(percentage) - last_percentage[0] >= 10:
+                        last_percentage[0] = int(percentage)
+                        try:
+                            await safe_edit_message(
+                                download_msg,
+                                f"📤 Uploading large file...\n\n"
+                                f"Progress: {percentage:.1f}%\n"
+                                f"Uploaded: {current / (1024*1024):.1f}MB / {total / (1024*1024):.1f}MB",
+                            )
+                        except:
+                            pass
+
+                # Upload using Telethon (to storage channel)
                 channel_id, message_id = await telethon_uploader.upload_file(
                     user_id,
                     file_path,
@@ -485,80 +570,200 @@ async def download_and_send_video(
                     progress_callback=telethon_progress,
                     thumbnail_path=thumbnail_path,
                     is_audio=(format_type == "audio"),
-                    audio_title=video_info.get("title"),
-                    audio_performer=performer,
-                    audio_duration=video_info.get("duration", 0),
+                    audio_title=video_info["title"] if format_type == "audio" else None,
+                    audio_performer=performer if format_type == "audio" else None,
+                    audio_duration=(
+                        video_info.get("duration", 0) if format_type == "audio" else 0
+                    ),
                     is_video=(format_type == "video"),
-                    video_duration=video_info.get("duration", 0),
+                    video_duration=(
+                        video_info.get("duration", 0) if format_type == "video" else 0
+                    ),
+                    video_width=(
+                        video_info.get("width", 1280) if format_type == "video" else 0
+                    ),
+                    video_height=(
+                        video_info.get("height", 720) if format_type == "video" else 0
+                    ),
                 )
 
                 if not channel_id or not message_id:
-                    raise Exception(str(message_id))
+                    error_msg = (
+                        message_id if isinstance(message_id, str) else "Unknown error"
+                    )
+                    await safe_edit_message(
+                        download_msg,
+                        f"❌ Failed to upload large file: {error_msg}\n\n"
+                        f"Make sure STORAGE_CHANNEL_ID is set in .env",
+                    )
+                    download.status = "failed"
+                    download.error_message = f"Telethon upload failed: {error_msg}"
+                    db.commit()
+                    downloader.cleanup_user_files(user_id)
+                    return
 
-                await safe_edit_message(download_msg, "📤 Sending to you...")
-                await context.bot.copy_message(
-                    chat_id=user_id,
-                    from_chat_id=channel_id,
-                    message_id=message_id,
-                )
-            except Exception as e:
-                logger.error(f"Telethon upload error: {e}")
-                await safe_edit_message(download_msg, "❌ Upload failed.")
-        else:
-            with open(file_path, "rb") as media_file:
-                thumb_file = (
-                    open(thumbnail_path, "rb")
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                )
+                # Now copy the message from channel to user using Bot API
+                await safe_edit_message(download_msg, "📤 Sending file to you...")
+
                 try:
-                    if format_type == "audio":
-                        await context.bot.send_audio(
+                    sent_message = await context.bot.copy_message(
+                        chat_id=user_id,
+                        from_chat_id=channel_id,
+                        message_id=message_id,
+                    )
+                    if sent_message and hasattr(sent_message, "video"):
+                        file_id = (
+                            sent_message.video.file_id if sent_message.video else None
+                        )
+                    elif sent_message and hasattr(sent_message, "document"):
+                        file_id = (
+                            sent_message.document.file_id
+                            if sent_message.document
+                            else None
+                        )
+
+                except Exception as e:
+                    logger.error(f"Failed to copy message from channel: {e}")
+                    await safe_edit_message(
+                        download_msg,
+                        f"❌ Failed to send file.\n"
+                        f"Make sure the bot is admin in the storage channel.",
+                    )
+                    download.status = "failed"
+                    download.error_message = f"Failed to copy from channel: {str(e)}"
+                    db.commit()
+                    downloader.cleanup_user_files(user_id)
+                    return
+
+                # Mark as sent successfully - file sent from bot!
+
+            except Exception as e:
+                logger.error(f"Telethon upload error: {e}", exc_info=True)
+                await safe_edit_message(
+                    download_msg,
+                    f"❌ Failed to upload large file: {str(e)[:100]}\n\n"
+                    f"Please select a lower quality (under 50MB).",
+                )
+                download.status = "failed"
+                download.error_message = str(e)[:200]
+                db.commit()
+                downloader.cleanup_user_files(user_id)
+                return
+        else:
+            # Use Bot API for files under 50MB
+            with open(file_path, "rb") as media_file:
+                if format_type == "audio":
+                    # Prepare thumbnail for audio
+                    thumbnail_file = None
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        thumbnail_file = open(thumbnail_path, "rb")
+
+                    try:
+                        sent_message = await context.bot.send_audio(
                             chat_id=user_id,
                             audio=media_file,
-                            thumbnail=thumb_file,
+                            thumbnail=thumbnail_file,
                             caption=caption,
                             title=video_info["title"],
                             performer=performer,
                             duration=video_info.get("duration", 0),
-                            write_timeout=60,
+                            read_timeout=120,
+                            write_timeout=120,
                         )
-                    elif format_type == "image":
-                        await context.bot.send_photo(
-                            chat_id=user_id, photo=media_file, caption=caption
-                        )
-                    else:
-                        await context.bot.send_video(
+                        if sent_message.audio:
+                            file_id = sent_message.audio.file_id
+                    finally:
+                        # Clean up thumbnail file
+                        if thumbnail_file:
+                            thumbnail_file.close()
+                        if thumbnail_path and os.path.exists(thumbnail_path):
+                            try:
+                                os.remove(thumbnail_path)
+                            except:
+                                pass
+                elif format_type == "image":
+                    sent_message = await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=media_file,
+                        caption=f"🖼 {video_info['title']}",
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
+                    if sent_message.photo:
+                        file_id = sent_message.photo[-1].file_id
+                else:
+                    # Prepare thumbnail for video
+                    thumbnail_file = None
+                    if thumbnail_path and os.path.exists(thumbnail_path):
+                        thumbnail_file = open(thumbnail_path, "rb")
+
+                    try:
+                        sent_message = await context.bot.send_video(
                             chat_id=user_id,
                             video=media_file,
                             caption=caption,
-                            thumbnail=thumb_file,
+                            thumbnail=thumbnail_file,
                             supports_streaming=True,
-                            write_timeout=60,
+                            read_timeout=120,
+                            write_timeout=120,
                         )
-                finally:
-                    if thumb_file:
-                        thumb_file.close()
+                        if sent_message.video:
+                            file_id = sent_message.video.file_id
+                    finally:
+                        # Clean up thumbnail file
+                        if thumbnail_file:
+                            thumbnail_file.close()
 
-        # Success message
+        # Update download status with message_id and file_id for restore
+        download.status = "completed"
+        download.quality = quality
+        download.format_type = format_type
+        download.file_size = file_size
+        download.completed_at = datetime.utcnow()
+        # Only set message_id and file_id if sent via Bot API (not Telethon)
+        if sent_message and not use_telethon:
+            if hasattr(sent_message, "message_id"):
+                download.message_id = sent_message.message_id
+        if file_id:
+            download.file_id = file_id
+        db.commit()
+
+        # Update download message to show completed
+        icon = (
+            "🎬"
+            if format_type == "video"
+            else ("🖼" if format_type == "image" else "🎵")
+        )
         try:
-            await safe_edit_message(download_msg, "✅ Download Complete!")
+            await safe_edit_message(
+                download_msg,
+                f"✅ *Downloaded Successfully!*\n\n"
+                f"{icon} *Format:* {format_type.title()}\n"
+                f"📊 *Quality:* {quality}\n"
+                f"💾 *Size:* {file_size / (1024*1024):.1f}MB",
+                parse_mode="Markdown",
+            )
+        except:
+            await download_msg.delete()
+
+        # Clean up file
+        try:
+            downloader.cleanup_user_files(user_id)
         except:
             pass
 
-        # Cleanup
-        downloader.cleanup_user_files(user_id)
-        if thumbnail_path and os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
-
-        download.status = "completed"
-        download.completed_at = datetime.utcnow()
-        db.commit()
+        # Clean up Redis cache and context
+        redis_client.delete_video_info(user_id)
+        if f"video_info_{download_id}" in context.user_data:
+            del context.user_data[f"video_info_{download_id}"]
 
     except Exception as e:
-        logger.error(f"Error in download_and_send: {e}", exc_info=True)
+        logger.error(f"Error in download_and_send_video: {e}", exc_info=True)
         try:
-            await context.bot.send_message(chat_id=user_id, text="❌ Error occurred.")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ An error occurred during download. Please try again.",
+            )
         except:
             pass
     finally:
