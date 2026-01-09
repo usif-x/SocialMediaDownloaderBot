@@ -30,6 +30,12 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     preferred_format = Column(String(20), default="video")  # video, audio
+    
+    # Quota and Queueing
+    daily_quota = Column(Integer, default=10)
+    used_quota = Column(Integer, default=0)
+    last_quota_reset = Column(DateTime, default=datetime.utcnow)
+    is_downloading = Column(Boolean, default=False)
 
     # Relationship
     downloads = relationship("Download", back_populates="user")
@@ -67,6 +73,23 @@ class Download(Base):
 
     def __repr__(self):
         return f"<Download(id={self.id}, title={self.title}, status={self.status})>"
+
+
+class DownloadQueue(Base):
+    """Queue for pending downloads when user is already downloading"""
+
+    __tablename__ = "download_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    url = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<DownloadQueue(id={self.id}, user_id={self.user_id})>"
 
 
 class MandatoryChannel(Base):

@@ -22,7 +22,7 @@ from scripts.cookie_refresher import CookieRefresher
 logger = logging.getLogger(__name__)
 
 # Conversation states
-SELECTING_ACTION, BROADCAST_MESSAGE, ADD_CHANNEL_ID, ADD_CHANNEL_LINK = range(4)
+SELECTING_ACTION, BROADCAST_MESSAGE, ADD_CHANNEL_ID, ADD_CHANNEL_LINK, SEARCH_USER_QUOTA, UPDATE_USER_QUOTA, SET_GLOBAL_QUOTA = range(7)
 
 # Admin Panel Home
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -42,6 +42,7 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("🍪 Refresh Cookies", callback_data="admin_refresh_cookies"),
+            InlineKeyboardButton("📊 Manage Quotas", callback_data="admin_quotas"),
         ],
         [
             InlineKeyboardButton("❌ Close", callback_data="admin_close"),
@@ -409,7 +410,145 @@ async def toggle_notify_callback(update: Update, context: ContextTypes.DEFAULT_T
         db.close()
 
 
-# --- Setup Handler ---
+# --- Quota Management ---
+async def admin_quotas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user ID to manage quota"""
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        "📊 **Quota Management**\n\n"
+        "Select an action:"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🔍 Search User", callback_data="admin_quota_search")],
+        [InlineKeyboardButton("🌎 Set Global Quota", callback_data="admin_global_quota")],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_home")]
+    ]
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return SELECTING_ACTION
+
+async def admin_quota_search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user ID to manage quota"""
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        "🔍 **Search User Quota**\n\n"
+        "Send the Telegram User ID of the user you want to manage."
+    )
+    await query.message.edit_text(text, parse_mode="Markdown")
+    return SEARCH_USER_QUOTA
+
+async def admin_global_quota_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for new global quota"""
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        "🌎 **Set Global Quota**\n\n"
+        "Send the **new daily quota** number for ALL users."
+    )
+    await query.message.edit_text(text, parse_mode="Markdown")
+    return SET_GLOBAL_QUOTA
+
+async def process_global_quota_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Update quota for all users"""
+    new_quota_text = update.message.text.strip()
+    
+    if not new_quota_text.isdigit():
+        await update.message.reply_text("❌ Please send a valid number.")
+        return SET_GLOBAL_QUOTA
+
+    new_quota = int(new_quota_text)
+    db = SessionLocal()
+    try:
+        # Update all users
+        updated_count = db.query(User).update({User.daily_quota: new_quota})
+        db.commit()
+        
+        await update.message.reply_text(
+            f"✅ Global quota updated successfully!\n\n"
+            f"📈 New Daily Quota: `{new_quota}`\n"
+            f"👥 Users Updated: `{updated_count}`",
+            parse_mode="Markdown"
+        )
+        
+        # Show menu again
+        keyboard = [[InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_home")]]
+        await update.message.reply_text("Admin Panel:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return SELECTING_ACTION
+    except Exception as e:
+        logger.error(f"Error updating global quota: {e}")
+        await update.message.reply_text(f"❌ Failed to update global quota: {e}")
+        return ConversationHandler.END
+    finally:
+        db.close()
+
+async def process_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search for user by ID"""
+    user_id_text = update.message.text.strip()
+    
+    if not user_id_text.isdigit():
+        await update.message.reply_text("❌ Please send a valid numeric Telegram ID.")
+        return SEARCH_USER_QUOTA
+
+    tg_id = int(user_id_text)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.telegram_id == tg_id).first()
+        if not user:
+            await update.message.reply_text(f"❌ User with ID `{tg_id}` not found in database.", parse_mode="Markdown")
+            return SEARCH_USER_QUOTA
+        
+        context.user_data['manage_quota_user_id'] = user.id
+        
+        text = (
+            f"👤 **User Found:** {user.first_name or ''} {user.last_name or ''} (@{user.username or 'N/A'})\n"
+            f"🆔 ID: `{user.telegram_id}`\n\n"
+            f"📈 **Current Quota:** `{user.used_quota}/{user.daily_quota}`\n\n"
+            "Send the **new daily quota** number for this user."
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
+        return UPDATE_USER_QUOTA
+    finally:
+        db.close()
+
+async def process_quota_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Update user quota"""
+    new_quota_text = update.message.text.strip()
+    
+    if not new_quota_text.isdigit():
+        await update.message.reply_text("❌ Please send a valid number.")
+        return UPDATE_USER_QUOTA
+
+    new_quota = int(new_quota_text)
+    user_db_id = context.user_data.get('manage_quota_user_id')
+    
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_db_id).first()
+        if user:
+            old_quota = user.daily_quota
+            user.daily_quota = new_quota
+            db.commit()
+            
+            await update.message.reply_text(
+                f"✅ Quota updated for user `{user.telegram_id}`!\n"
+                f"Previous: `{old_quota}`\n"
+                f"New: `{new_quota}`",
+                parse_mode="Markdown"
+            )
+            
+            # Show menu again
+            keyboard = [[InlineKeyboardButton("🔙 Back to Panel", callback_data="admin_home")]]
+            await update.message.reply_text("Admin Panel:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return SELECTING_ACTION
+        else:
+            await update.message.reply_text("❌ Error: User record lost.")
+            return ConversationHandler.END
+    finally:
+        db.close()
 def get_admin_handler() -> ConversationHandler:
     """Return the admin conversation handler"""
     return ConversationHandler(
@@ -421,6 +560,9 @@ def get_admin_handler() -> ConversationHandler:
                 CallbackQueryHandler(list_channels, pattern="^admin_channels$"),
                 CallbackQueryHandler(admin_refresh_cookies_callback, pattern="^admin_refresh_cookies$"),
                 CallbackQueryHandler(admin_notifications, pattern="^admin_notifications$"),
+                CallbackQueryHandler(admin_quotas, pattern="^admin_quotas$"),
+                CallbackQueryHandler(admin_quota_search_start, pattern="^admin_quota_search$"),
+                CallbackQueryHandler(admin_global_quota_start, pattern="^admin_global_quota$"),
                 CallbackQueryHandler(toggle_notify_callback, pattern="^notify_toggle_"),
                 CallbackQueryHandler(delete_channel_callback, pattern="^del_channel_"),
                 CallbackQueryHandler(add_channel_start, pattern="^add_channel$"),
@@ -435,6 +577,15 @@ def get_admin_handler() -> ConversationHandler:
             ],
             ADD_CHANNEL_LINK: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_link)
+            ],
+            SEARCH_USER_QUOTA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_user_search)
+            ],
+            UPDATE_USER_QUOTA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_quota_update)
+            ],
+            SET_GLOBAL_QUOTA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_global_quota_update)
             ]
         },
         fallbacks=[

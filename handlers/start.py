@@ -56,11 +56,30 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db_user.first_name = user.first_name
             db_user.last_name = user.last_name
             db_user.last_activity = datetime.utcnow()
+            
+            # Handle Quota Reset (Daily)
+            now = datetime.utcnow()
+            if db_user.daily_quota is None:
+                db_user.daily_quota = 10
+            if db_user.used_quota is None:
+                db_user.used_quota = 0
+            if db_user.last_quota_reset is None:
+                db_user.last_quota_reset = now
+            elif db_user.last_quota_reset.date() < now.date():
+                db_user.used_quota = 0
+                db_user.last_quota_reset = now
+                
             db.commit()
+
+        # Get values for message
+        used_quota = db_user.used_quota
+        total_quota = db_user.daily_quota
+
     except Exception as e:
         import logging
-
         logging.getLogger(__name__).error(f"Database error in start_command: {e}")
+        used_quota = 0
+        total_quota = 10
     finally:
         try:
             db.close()
@@ -70,6 +89,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
         f"🎥 I'm a YouTube Downloader Bot.\n\n"
+        f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"🔍 Type `@vid [search terms]` to search for videos\n"
         f"OR\n"
         f"🔗 Send me a YouTube link to get started 🚀\n\n"
