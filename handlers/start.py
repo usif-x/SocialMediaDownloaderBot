@@ -96,7 +96,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3️⃣ Choose format type (Video/Audio) if available\n"
         "4️⃣ Select quality (if available) and download starts!\n\n"
         "*How to search for videos:*\n"
-        "🔍 Type `@vid [search terms]` in any chat\n"
+        "🔍 Type `@vid [search terms]` in chat\n"
         "Example: `@vid Amr Diab`\n"
         "📱 Tap on any result and result link will send automatically\n\n"
         "*Supported Platform:*\n"
