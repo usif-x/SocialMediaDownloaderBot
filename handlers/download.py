@@ -563,8 +563,8 @@ async def download_and_send_video(
                 last_percentage = [0]  # Use list to modify in closure
 
                 async def telethon_progress(percentage, current, total):
-                    # Update only every 10%
-                    if int(percentage) - last_percentage[0] >= 10:
+                    # Update only every 5%
+                    if int(percentage) - last_percentage[0] >= 5:
                         last_percentage[0] = int(percentage)
                         try:
                             await safe_edit_message(
