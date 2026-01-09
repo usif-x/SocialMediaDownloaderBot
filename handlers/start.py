@@ -89,7 +89,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
         f"🎥 I'm a YouTube Downloader Bot.\n\n"
-        f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
+        # f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"🔍 Type `@vid [search terms]` to search for videos\n"
         f"OR\n"
         f"🔗 Send me a YouTube link to get started 🚀\n\n"

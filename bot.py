@@ -33,7 +33,6 @@ from handlers import (
     subscription_callback_handler,
     format_command,
     format_callback,
-    cancel_active_download,
 )
 
 # Configure logging
@@ -138,9 +137,6 @@ def main():
     )
     application.add_handler(
         CallbackQueryHandler(handle_quality_selection, pattern="^retry_")
-    )
-    application.add_handler(
-        CallbackQueryHandler(cancel_active_download, pattern="^cancel_active_download$")
     )
 
     # Add callback query handler for history pagination

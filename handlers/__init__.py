@@ -1,5 +1,5 @@
 from .callbacks import handle_quality_selection
-from .download import handle_url, cancel_active_download
+from .download import handle_url
 from .history import history_command, history_pagination_callback, restore_command
 from .start import help_command, start_command
 from .settings import format_command, format_callback
@@ -22,5 +22,4 @@ __all__ = [
     "subscription_callback_handler",
     "format_command",
     "format_callback",
-    "cancel_active_download",
 ]

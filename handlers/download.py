@@ -9,7 +9,7 @@ from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from database import Download, User, DownloadQueue, get_db
+from database import Download, User, get_db
 from utils import (
     VideoDownloader,
     format_duration,
@@ -18,33 +18,6 @@ from utils import (
     redis_client,
     telethon_uploader,
 )
-
-# Global tracking for active tasks to support cancellation
-active_tasks = {}
-
-class DownloadCancelled(Exception):
-    """Custom exception raised when a download is cancelled by the user"""
-    pass
-
-
-def normalize_youtube_url(url: str) -> str:
-    """Normalize YouTube URL by extracting video ID and stripping extra parameters"""
-    # Standard video patterns
-    video_id_patterns = [
-        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})",
-        r"(?:youtube\.com/embed/|youtube\.com/v/|youtube\.com/vi/)([a-zA-Z0-9_-]{11})",
-    ]
-    
-    for pattern in video_id_patterns:
-        match = re.search(pattern, url)
-        if match:
-            video_id = match.group(1)
-            # Use short format if originally short, else standard
-            if "youtu.be" in url:
-                return f"https://youtu.be/{video_id}"
-            return f"https://www.youtube.com/watch?v={video_id}"
-            
-    return url
 
 
 async def handle_url(
@@ -60,9 +33,6 @@ async def handle_url(
     # Use provided URL or get from message
     if url is None:
         url = update.message.text.strip()
-
-    # Normalize YouTube URL if applicable
-    url = normalize_youtube_url(url)
 
     logger.info(f"User {user.id} sent URL: {url}")
 
@@ -116,64 +86,6 @@ async def handle_url(
                 "❌ User not found. Please use /start first."
             )
             return
-
-        # Handle Quota Reset (Daily)
-        now = datetime.utcnow()
-        
-        # Ensure quota fields are not None (can happen if users existed before migration)
-        if db_user.daily_quota is None:
-            db_user.daily_quota = 10
-        if db_user.used_quota is None:
-            db_user.used_quota = 0
-        if db_user.last_quota_reset is None:
-            db_user.last_quota_reset = now
-            db.commit()
-
-        if db_user.last_quota_reset.date() < now.date():
-            db_user.used_quota = 0
-            db_user.last_quota_reset = now
-            db.commit()
-
-        # Check Quota
-        if db_user.used_quota >= db_user.daily_quota:
-            await processing_msg.edit_text(
-                f"❌ Daily download quota reached ({db_user.daily_quota}/{db_user.daily_quota}).\n"
-                f"Your quota will refresh tomorrow."
-            )
-            return
-
-        # Check if already downloading (Queueing)
-        if db_user.is_downloading:
-            # Add to queue
-            queue_item = DownloadQueue(user_id=db_user.id, url=url)
-            db.add(queue_item)
-            db.commit()
-            
-            # Count users in queue ahead
-            queue_position = db.query(DownloadQueue).filter(
-                DownloadQueue.user_id == db_user.id,
-                DownloadQueue.id < queue_item.id
-            ).count()
-
-            # Add cancel button
-            keyboard = [
-                [InlineKeyboardButton("🚫 Cancel Current & Start Next", callback_data="cancel_active_download")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await processing_msg.edit_text(
-                f"⏳ You have an active download process.\n\n"
-                f"🔗 Link added to queue: `{url}`\n"
-                f"📊 Queue Position: {queue_position + 1}\n\n"
-                f"I will process it automatically once your current download finishes.",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-            return
-
-        # Mark user as downloading
-        db_user.is_downloading = True
-        db.commit()
 
         # Create download record
         download = Download(user_id=db_user.id, url=url, status="processing")
@@ -390,29 +302,6 @@ async def safe_edit_message(message, text, parse_mode=None):
             pass  # Ignore if both fail
 
 
-async def cancel_active_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback handler to cancel the current active download"""
-    query = update.callback_query
-    user_id = update.effective_user.id
-    
-    await query.answer("⌛ Cancelling current download...")
-    
-    if user_id in active_tasks:
-        active_tasks[user_id]["cancelled"] = True
-        # Get existing text
-        existing_text = query.message.text or query.message.caption or ""
-        await safe_edit_message(
-            query.message,
-            f"{existing_text}\n\n⚠️ **Cancellation requested.**\nStopping current process to start the next one...",
-            parse_mode="Markdown"
-        )
-    else:
-        await safe_edit_message(
-            query.message,
-            "❌ No active download found to cancel, or it might have already finished.",
-        )
-
-
 async def download_and_send_video(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -460,9 +349,6 @@ async def download_and_send_video(
                 text=f"⬇️ Downloading {format_type} in {quality}...\n\nPlease wait, this may take a few moments.",
             )
 
-        # Initialize active task tracking
-        active_tasks[user_id] = {"cancelled": False}
-
         # Progress tracking with queue for thread-safe communication
         import queue
         import threading
@@ -475,10 +361,6 @@ async def download_and_send_video(
             last_text = ""
             while not stop_progress.is_set():
                 try:
-                    # Check for cancellation
-                    if active_tasks.get(user_id, {}).get("cancelled"):
-                        raise DownloadCancelled("User cancelled the download")
-
                     # Non-blocking check with timeout
                     text = progress_queue.get(timeout=0.5)
                     if text and text != last_text:
@@ -494,10 +376,6 @@ async def download_and_send_video(
 
         def sync_progress_callback(percentage: float, status_text: str):
             """Sync callback that puts progress in queue"""
-            # Check for cancellation
-            if active_tasks.get(user_id, {}).get("cancelled"):
-                raise DownloadCancelled("User cancelled the download")
-                
             try:
                 # Clear old items and add new one
                 while not progress_queue.empty():
@@ -683,21 +561,13 @@ async def download_and_send_video(
         if use_telethon:
             try:
                 # Progress callback for Telethon upload
-                last_update_time = [0]  # Use list to modify in closure
+                last_percentage = [0]  # Use list to modify in closure
                 start_time = time.time()
 
                 async def telethon_progress(percentage, current, total):
-                    # Check for cancellation
-                    if active_tasks.get(user_id, {}).get("cancelled"):
-                        # Telethon doesn't have a clean "stop" halfway through upload easily,
-                        # but we can stop sending updates and hope the next step catches it.
-                        # Actually we can raise an exception to stop the uploader if it's async-wrapped correctly.
-                        raise DownloadCancelled("User cancelled the upload")
-
-                    # Update only every 3 seconds
-                    current_time = time.time()
-                    if current_time - last_update_time[0] >= 3:
-                        last_update_time[0] = current_time
+                    # Update only every 5%
+                    if int(percentage) - last_percentage[0] >= 5:
+                        last_percentage[0] = int(percentage)
                         
                         # Calculate speed and ETA
                         elapsed = time.time() - start_time
@@ -714,7 +584,7 @@ async def download_and_send_video(
                                 f"Progress: {percentage:.1f}%\n"
                                 f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
                                 f"Speed: {speed_str}\n"
-                                f"Estimated Time: {eta_str}",
+                                f"ETA: {eta_str}",
                             )
                         except:
                             pass
@@ -928,12 +798,6 @@ async def download_and_send_video(
                 download.message_id = sent_message.message_id
         if file_id:
             download.file_id = file_id
-        
-        # Increment quota only on success
-        user_record = db.query(User).filter(User.id == download.user_id).first()
-        if user_record:
-            user_record.used_quota += 1
-            
         db.commit()
 
         # Update download message to show completed
@@ -975,51 +839,4 @@ async def download_and_send_video(
         except:
             pass
     finally:
-        try:
-            # Cleanup tracked task
-            if user_id in active_tasks:
-                del active_tasks[user_id]
-
-            # Check for next items in queue before resetting is_downloading
-            user_record = db.query(User).filter(User.id == download.user_id).first()
-            if user_record:
-                next_in_queue = db.query(DownloadQueue).filter(
-                    DownloadQueue.user_id == user_record.id
-                ).order_by(DownloadQueue.created_at.asc()).first()
-                
-                if next_in_queue:
-                    # There is another link in queue, process it
-                    url_to_process = next_in_queue.url
-                    # Remove from queue
-                    db.delete(next_in_queue)
-                    db.commit()
-                    
-                    # Notify user
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🔄 Your previous process was stopped. Now processing next link from your queue:\n`{url_to_process}`",
-                        parse_mode="Markdown"
-                    )
-                    
-                    # Trigger next download (it will handle is_downloading)
-                    # Use create_task to avoid deep recursion if many links in queue
-                    asyncio.create_task(handle_url(update, context, url=url_to_process))
-                else:
-                    # No more links, reset is_downloading
-                    user_record.is_downloading = False
-                    db.commit()
-        except Exception as queue_err:
-            logger.error(f"Error processing queue: {queue_err}")
-            # Ensure is_downloading is reset even if queue processing fails
-            try:
-                user_record = db.query(User).filter(User.id == download.user_id).first()
-                if user_record:
-                    user_record.is_downloading = False
-                    db.commit()
-            except:
-                pass
-        
-        try:
-            db.close()
-        except:
-            pass
+        db.close()
