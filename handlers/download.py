@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -12,6 +13,7 @@ from database import Download, User, get_db
 from utils import (
     VideoDownloader,
     format_duration,
+    format_file_size,
     format_views,
     redis_client,
     telethon_uploader,
@@ -487,8 +489,7 @@ async def download_and_send_video(
                 await safe_edit_message(
                     download_msg,
                     f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
-                    f"Maximum supported size is 2GB.\n\n"
-                    f"Please select a lower quality to reduce file size.",
+                    f"Maximum supported size is 2GB."
                 )
                 try:
                     os.remove(file_path)
@@ -561,17 +562,29 @@ async def download_and_send_video(
             try:
                 # Progress callback for Telethon upload
                 last_percentage = [0]  # Use list to modify in closure
+                start_time = time.time()
 
                 async def telethon_progress(percentage, current, total):
                     # Update only every 5%
                     if int(percentage) - last_percentage[0] >= 5:
                         last_percentage[0] = int(percentage)
+                        
+                        # Calculate speed and ETA
+                        elapsed = time.time() - start_time
+                        speed = current / elapsed if elapsed > 0 else 0
+                        eta = (total - current) / speed if speed > 0 else 0
+                        
+                        speed_str = f"{format_file_size(int(speed))}/s"
+                        eta_str = format_duration(int(eta)) if eta > 0 else "Calculating..."
+                        
                         try:
                             await safe_edit_message(
                                 download_msg,
                                 f"📤 Uploading large file...\n\n"
                                 f"Progress: {percentage:.1f}%\n"
-                                f"Uploaded: {current / (1024*1024):.1f}MB / {total / (1024*1024):.1f}MB",
+                                f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
+                                f"Speed: {speed_str}\n"
+                                f"ETA: {eta_str}",
                             )
                         except:
                             pass
