@@ -98,14 +98,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*How to search for videos:*\n"
         "🔍 Type `@vid [search terms]` in any chat\n"
         "Example: `@vid Amr Diab`\n"
-        "📱 Tap on a result, then send me that video link\n\n"
+        "📱 Tap on any result and result link will send automatically\n\n"
         "*Supported Platform:*\n"
         "✅ YouTube\n\n"
-        "*Tips:*\n"
-        "💡 Use @vid in any chat to search for videos\n"
-        "💡 Send direct YouTube links to download\n"
-        "💡 Use /history to see and restore past downloads\n"
-        "💡 Use /format to set your preferred download format\n\n"
         "Need more help? Just try sending a YouTube link!"
     )
 
