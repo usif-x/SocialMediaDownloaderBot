@@ -29,6 +29,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    preferred_format = Column(String(20), default="video")  # video, audio
 
     # Relationship
     downloads = relationship("Download", back_populates="user")

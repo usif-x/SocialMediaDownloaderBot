@@ -212,10 +212,10 @@ async def handle_url(
                 ]
             )
 
-        if not keyboard:
-            # No formats available, try best
+            # No formats available, try user's preferred format
+            preferred_format = db_user.preferred_format or "video"
             info_message = info_message.replace(
-                "*Select Format Type:*", "⬇️ Starting download..."
+                "*Select Format Type:*", f"⬇️ Starting download ({preferred_format})..."
             )
 
             # Send thumbnail with caption
@@ -232,7 +232,7 @@ async def handle_url(
                 await processing_msg.edit_text(info_message, parse_mode="Markdown")
 
             await download_and_send_video(
-                update, context, download.id, "video", "best", None, user.id
+                update, context, download.id, preferred_format, "best", None, user.id
             )
         else:
             reply_markup = InlineKeyboardMarkup(keyboard)

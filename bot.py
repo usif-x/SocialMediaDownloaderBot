@@ -30,7 +30,10 @@ from handlers import (
     start_command,
     get_admin_handler,
     check_subscription,
+    check_subscription,
     subscription_callback_handler,
+    format_command,
+    format_callback,
 )
 
 # Configure logging
@@ -103,6 +106,8 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("restore", restore_command))
+    application.add_handler(CommandHandler("format", format_command))
+
     
     # Admin Handler
     application.add_handler(get_admin_handler())
@@ -144,6 +149,10 @@ def main():
     application.add_handler(
         CallbackQueryHandler(subscription_callback_handler, pattern="^check_subscription$")
     )
+    application.add_handler(
+        CallbackQueryHandler(format_callback, pattern="^set_format_")
+    )
+
 
     # Add message handler for URLs - MUST be last
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
