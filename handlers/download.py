@@ -506,7 +506,6 @@ async def download_and_send_video(
             await safe_edit_message(
                 download_msg,
                 f"📤 Uploading large file ({file_size / (1024*1024):.1f}MB)...\n"
-                f"Using alternative upload method.\n"
                 f"This may take a while...",
             )
 
