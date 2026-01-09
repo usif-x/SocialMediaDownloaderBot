@@ -561,13 +561,14 @@ async def download_and_send_video(
         if use_telethon:
             try:
                 # Progress callback for Telethon upload
-                last_percentage = [0]  # Use list to modify in closure
+                last_update_time = [0]  # Use list to modify in closure
                 start_time = time.time()
 
                 async def telethon_progress(percentage, current, total):
-                    # Update only every 5%
-                    if int(percentage) - last_percentage[0] >= 5:
-                        last_percentage[0] = int(percentage)
+                    # Update only every 3 seconds
+                    current_time = time.time()
+                    if current_time - last_update_time[0] >= 3:
+                        last_update_time[0] = current_time
                         
                         # Calculate speed and ETA
                         elapsed = time.time() - start_time
@@ -584,7 +585,7 @@ async def download_and_send_video(
                                 f"Progress: {percentage:.1f}%\n"
                                 f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
                                 f"Speed: {speed_str}\n"
-                                f"ETA: {eta_str}",
+                                f"Estimated Time: {eta_str}",
                             )
                         except:
                             pass
