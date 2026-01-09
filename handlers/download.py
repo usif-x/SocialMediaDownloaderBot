@@ -212,6 +212,7 @@ async def handle_url(
                 ]
             )
 
+        if not keyboard:
             # No formats available, try user's preferred format
             preferred_format = db_user.preferred_format or "video"
             info_message = info_message.replace(
