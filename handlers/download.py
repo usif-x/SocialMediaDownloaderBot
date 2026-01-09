@@ -19,6 +19,25 @@ from utils import (
     telethon_uploader,
 )
 
+def normalize_youtube_url(url: str) -> str:
+    """Normalize YouTube URL by extracting video ID and stripping extra parameters"""
+    # Standard video patterns
+    video_id_patterns = [
+        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})",
+        r"(?:youtube\.com/embed/|youtube\.com/v/|youtube\.com/vi/)([a-zA-Z0-9_-]{11})",
+    ]
+    
+    for pattern in video_id_patterns:
+        match = re.search(pattern, url)
+        if match:
+            video_id = match.group(1)
+            # Use short format if originally short, else standard
+            if "youtu.be" in url:
+                return f"https://youtu.be/{video_id}"
+            return f"https://www.youtube.com/watch?v={video_id}"
+            
+    return url
+
 
 async def handle_url(
     update: Update,
@@ -33,6 +52,9 @@ async def handle_url(
     # Use provided URL or get from message
     if url is None:
         url = update.message.text.strip()
+    
+
+    url = normalize_youtube_url(url)
 
     logger.info(f"User {user.id} sent URL: {url}")
 
