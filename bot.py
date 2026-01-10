@@ -6,6 +6,7 @@ A scalable bot for downloading videos from various social media platforms
 
 import logging
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -15,12 +16,14 @@ from telegram.ext import (
     TypeHandler,
     filters,
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from scripts.cookie_refresher import CookieRefresher
 
 from config import settings
 from database import init_db
 from handlers import (
+    check_subscription,
+    format_callback,
+    format_command,
+    get_admin_handler,
     handle_quality_selection,
     handle_url,
     help_command,
@@ -28,12 +31,12 @@ from handlers import (
     history_pagination_callback,
     restore_command,
     start_command,
-    get_admin_handler,
-    check_subscription,
     subscription_callback_handler,
-    format_command,
-    format_callback,
 )
+
+# Import the ban check middleware
+from handlers.middleware import check_user_ban
+from scripts.cookie_refresher import CookieRefresher
 
 # Configure logging
 logging.basicConfig(
@@ -52,13 +55,17 @@ async def post_init(application: Application):
     if settings.AUTO_REFRESH_COOKIES:
         scheduler = AsyncIOScheduler()
         refresher = CookieRefresher()
-        
+
         # Schedule refreshing every minute
         scheduler.add_job(refresher.refresh, "interval", minutes=1)
         scheduler.start()
-        logger.info("Scheduler started for cookie refreshing (AUTO_REFRESH_COOKIES=true)")
+        logger.info(
+            "Scheduler started for cookie refreshing (AUTO_REFRESH_COOKIES=true)"
+        )
     else:
-        logger.info("Automatic cookie refreshing is disabled (AUTO_REFRESH_COOKIES=false). Use /refresh to refresh manually.")
+        logger.info(
+            "Automatic cookie refreshing is disabled (AUTO_REFRESH_COOKIES=false). Use /refresh to refresh manually."
+        )
 
 
 async def error_handler(update: object, context: object):
@@ -97,17 +104,20 @@ def main():
         .build()
     )
 
-    # Add middleware for subscription check (High Priority)
+    # Add middleware handlers (HIGHEST PRIORITY - group -2 and -1)
+    # Ban check runs FIRST (group -2)
+    application.add_handler(TypeHandler(Update, check_user_ban), group=-2)
+
+    # Subscription check runs SECOND (group -1)
     application.add_handler(TypeHandler(Update, check_subscription), group=-1)
 
-    # Add command handlers
+    # Add command handlers (group 0 - default)
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("restore", restore_command))
     application.add_handler(CommandHandler("format", format_command))
 
-    
     # Admin Handler
     application.add_handler(get_admin_handler())
 
@@ -146,12 +156,13 @@ def main():
 
     # Add callback query handler for subscription check
     application.add_handler(
-        CallbackQueryHandler(subscription_callback_handler, pattern="^check_subscription$")
+        CallbackQueryHandler(
+            subscription_callback_handler, pattern="^check_subscription$"
+        )
     )
     application.add_handler(
         CallbackQueryHandler(format_callback, pattern="^set_format_")
     )
-
 
     # Add message handler for URLs - MUST be last
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))

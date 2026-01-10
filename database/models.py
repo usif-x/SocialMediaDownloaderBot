@@ -30,12 +30,13 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     preferred_format = Column(String(20), default="video")  # video, audio
-    
+
     # Quota and Queueing
     daily_quota = Column(Integer, default=10)
     used_quota = Column(Integer, default=0)
     last_quota_reset = Column(DateTime, default=datetime.utcnow)
     is_downloading = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False)
 
     # Relationship
     downloads = relationship("Download", back_populates="user")
@@ -115,6 +116,6 @@ class BotSetting(Base):
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(50), unique=True, nullable=False)
     value = Column(String(255), nullable=True)
-    
+
     def __repr__(self):
         return f"<BotSetting(key={self.key}, value={self.value})>"

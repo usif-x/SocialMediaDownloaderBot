@@ -1,11 +1,10 @@
+from .admin import get_admin_handler
 from .callbacks import handle_quality_selection
 from .download import handle_url
 from .history import history_command, history_pagination_callback, restore_command
+from .middleware import check_user_ban
+from .settings import format_callback, format_command
 from .start import help_command, start_command
-from .settings import format_command, format_callback
-
-
-from .admin import get_admin_handler
 from .subscription import check_subscription, subscription_callback_handler
 
 __all__ = [
@@ -22,4 +21,5 @@ __all__ = [
     "subscription_callback_handler",
     "format_command",
     "format_callback",
+    "check_user_ban",
 ]
