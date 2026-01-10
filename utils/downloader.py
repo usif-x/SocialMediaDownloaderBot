@@ -432,17 +432,7 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
-
-        Args:
-            url: Video URL
-            format_type: 'video' or 'audio'
-            quality: Quality format (e.g., '720p', 'best', '128kbps')
-            format_id: Specific format ID from yt-dlp
-            user_id: User ID for organizing downloads
-            progress_callback: Optional callback function(percentage, status_text)
-
-        Returns:
-            Tuple of (file_path, error_message)
+        FIXED for Instagram frozen video issue
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
@@ -452,32 +442,32 @@ class VideoDownloader:
         # Clean filename template
         output_template = os.path.join(user_path, "%(title).100s.%(ext)s")
 
+        # Detect if this is Instagram
+        is_instagram = "instagram.com" in url.lower()
+
         # Configure format string based on type and quality selection
         if format_type == "audio":
-            # For audio, use format_id if provided, otherwise best
             if format_id and format_id != "best" and format_id != "bestaudio":
                 format_string = f"{format_id}/bestaudio/best"
             else:
                 format_string = "bestaudio/best"
         else:
-            # For video, use format_id if provided to get specific quality
-            if format_id and format_id != "best":
-                # Use the specific format ID and merge with best audio
-                # Format: specified_video+bestaudio/specified_video/fallback
-                format_string = (
-                    f"{format_id}+bestaudio/{format_id}/bestvideo+bestaudio/best"
-                )
+            # CRITICAL FIX FOR INSTAGRAM: Use simpler format selection
+            if is_instagram:
+                # Instagram requires special handling - just use best
+                # Don't try to merge separate streams as it causes issues
+                format_string = "best"
+            elif format_id and format_id != "best":
+                # For other platforms, merge video+audio
+                format_string = f"{format_id}+bestaudio/{format_id}/best"
             elif quality and quality != "best" and quality != "Best":
-                # If quality is specified (e.g., "720p", "480p") but no format_id
-                # Extract height from quality string
                 quality_height = quality.replace("p", "")
                 if quality_height.isdigit():
-                    # Select video with specific height and merge with best audio
-                    format_string = f"bestvideo[height<={quality_height}]+bestaudio/best[height<={quality_height}]"
+                    format_string = f"bestvideo[height<={quality_height}]+bestaudio/best[height<={quality_height}]/best"
                 else:
                     format_string = "bestvideo+bestaudio/best"
             else:
-                # Default: best quality with audio
+                # Default: merge video+audio
                 format_string = "bestvideo+bestaudio/best"
 
         ydl_opts = {
@@ -485,15 +475,13 @@ class VideoDownloader:
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
-            "noprogress": True,  # Suppress terminal progress
+            "noprogress": True,
             "ignoreerrors": False,
             "socket_timeout": 60,
             "retries": 3,
             "fragment_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
-            "extractor_args": {},
-            # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
@@ -503,37 +491,38 @@ class VideoDownloader:
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
-            # Log cookie content for debugging
-            try:
-                with open(cookies_file, "r") as f:
-                    cookie_content = f.read()
-                    logger.info(
-                        f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------"
-                    )
-            except Exception as e:
-                logger.error(f"Failed to read cookies file for logging: {e}")
 
-        # Add postprocessors based on format type
+        # Configure postprocessors based on platform
         if format_type == "video":
-            ydl_opts["merge_output_format"] = "mp4"
-            # Use FFmpegVideoConvertor to ensure proper merging
-            ydl_opts["postprocessors"] = [
-                {
-                    "key": "FFmpegVideoConvertor",
-                    "preferedformat": "mp4",
-                },
-                {
-                    "key": "FFmpegMetadata",
-                },
-                {
-                    "key": "EmbedThumbnail",
-                },
-            ]
             ydl_opts["writethumbnail"] = True
-            # Ensure ffmpeg merges audio and video
-            ydl_opts["keepvideo"] = False
+
+            if is_instagram:
+                # INSTAGRAM SPECIFIC FIX: Use simpler post-processing
+                # Instagram videos are usually already in MP4 with audio merged
+                # Minimal processing to avoid breaking the streams
+                ydl_opts["postprocessors"] = [
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                ]
+            else:
+                # For other platforms: proper merging with FFmpegVideoRemuxer
+                ydl_opts["merge_output_format"] = "mp4"
+                ydl_opts["postprocessors"] = [
+                    {
+                        "key": "FFmpegVideoRemuxer",
+                        "preferedformat": "mp4",
+                    },
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                    {
+                        "key": "EmbedThumbnail",
+                        "already_have_thumbnail": False,
+                    },
+                ]
         else:
-            # For audio, extract audio and embed thumbnail
+            # For audio extraction
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
@@ -558,11 +547,9 @@ class VideoDownloader:
                     return None, "Failed to download"
 
                 filename = ydl.prepare_filename(info)
-
-                # Get the base name for file search
                 base_name = os.path.splitext(filename)[0]
 
-                # Handle different output extensions based on format type
+                # Handle different output extensions
                 if format_type == "audio":
                     possible_extensions = [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
                 else:
@@ -578,22 +565,24 @@ class VideoDownloader:
                     if os.path.exists(test_path):
                         return test_path, None
 
-                # Try to find any matching file in the directory
+                # Find latest file in directory
                 if os.path.exists(user_path):
-                    # Get title from info for matching
-                    title_part = info.get("title", "")[:50] if info.get("title") else ""
-
                     latest_file = None
                     latest_time = 0
 
                     for f in os.listdir(user_path):
                         full_path = os.path.join(user_path, f)
                         if os.path.isfile(full_path):
-                            file_time = os.path.getmtime(full_path)
-                            # Prefer files modified in last 60 seconds
-                            if file_time > latest_time:
-                                latest_time = file_time
-                                latest_file = full_path
+                            # Check if file has correct extension
+                            if any(
+                                full_path.endswith(ext) for ext in possible_extensions
+                            ):
+                                file_time = os.path.getmtime(full_path)
+                                # Only consider files modified in the last 60 seconds
+                                if time.time() - file_time < 60:
+                                    if file_time > latest_time:
+                                        latest_time = file_time
+                                        latest_file = full_path
 
                     if latest_file:
                         return latest_file, None
