@@ -184,10 +184,24 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             )
             return
 
+        # Parse more robustly: download_id is last part, format_id is second-last,
+        # quality may contain underscores so join the middle parts
         format_type = callback_data[1]  # 'video', 'audio', or 'image'
-        quality = callback_data[2]
-        format_id = callback_data[3] if callback_data[3] != "none" else None
-        download_id = int(callback_data[4])
+        if len(callback_data) < 4:
+            await safe_edit_message(
+                query.message, "❌ Invalid selection. Please try again."
+            )
+            return
+
+        download_id = int(callback_data[-1])
+        format_id_raw = callback_data[-2]
+        format_id = format_id_raw if format_id_raw != "none" else None
+        # quality is everything between index 2 and -2
+        quality = (
+            "_".join(callback_data[2:-2])
+            if len(callback_data) > 4
+            else callback_data[2]
+        )
         user_id = update.effective_user.id
 
         # Update message to show selection
