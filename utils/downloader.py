@@ -43,7 +43,6 @@ class VideoDownloader:
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
-                "instagram": {"skip": ["dash"]},
                 "youtube": {"player_client": ["android", "web"]},
             },
             # Add user agent to avoid bot detection
@@ -493,9 +492,7 @@ class VideoDownloader:
             "fragment_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
-            "extractor_args": {
-                "instagram": {"skip": ["dash"]},
-            },
+            "extractor_args": {},
             # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -754,11 +751,6 @@ class VideoDownloader:
                         os.remove(file_path)
             except Exception as e:
                 logger.error(f"Error cleaning up files: {e}")
-
-    @staticmethod
-    def get_supported_sites() -> List[str]:
-        """Get list of supported sites"""
-        return settings.SUPPORTED_SITES
 
     @staticmethod
     def get_supported_sites() -> List[str]:
