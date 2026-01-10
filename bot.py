@@ -27,6 +27,7 @@ from handlers import (
     handle_quality_selection,
     handle_url,
     help_command,
+    history_clear_callback,
     history_command,
     history_pagination_callback,
     restore_command,
@@ -152,6 +153,10 @@ def main():
     # Add callback query handler for history pagination
     application.add_handler(
         CallbackQueryHandler(history_pagination_callback, pattern="^history_page_")
+    )
+    # Add callback for clearing history (confirm/cancel)
+    application.add_handler(
+        CallbackQueryHandler(history_clear_callback, pattern="^clear_history")
     )
 
     application.add_handler(

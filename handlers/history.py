@@ -12,6 +12,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /history command - show user's download history"""
     logger = logging.getLogger(__name__)
     user = update.effective_user
+    message = update.effective_message
 
     # Get page number from context (for pagination)
     page = int(context.args[0]) if context.args and context.args[0].isdigit() else 1
@@ -22,9 +23,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_user = db.query(User).filter(User.telegram_id == user.id).first()
 
         if not db_user:
-            await update.message.reply_text(
-                "❌ User not found. Please use /start first."
-            )
+            await message.reply_text("❌ User not found. Please use /start first.")
             return
 
         # Pagination settings
@@ -51,7 +50,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_pages = (total_downloads + items_per_page - 1) // items_per_page
 
         if not downloads:
-            await update.message.reply_text(
+            await message.reply_text(
                 "📭 No download history found.\n\nSend me a video link to start downloading!"
             )
             return
@@ -122,18 +121,33 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if buttons:
             keyboard.append(buttons)
+            # Add Clear History button below pagination
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🧹 Clear History", callback_data="clear_history"
+                    )
+                ]
+            )
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
+            await message.reply_text(
                 history_text, parse_mode="MarkdownV2", reply_markup=reply_markup
             )
         else:
-            await update.message.reply_text(history_text, parse_mode="MarkdownV2")
+            await message.reply_text(history_text, parse_mode="MarkdownV2")
 
     except Exception as e:
         logger.error(f"Error in history_command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ An error occurred while fetching history. Please try again."
-        )
+        try:
+            await message.reply_text(
+                "❌ An error occurred while fetching history. Please try again."
+            )
+        except Exception:
+            # Fallback to bot send if message isn't available
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="❌ An error occurred while fetching history. Please try again.",
+            )
     finally:
         try:
             db.close()
@@ -378,13 +392,20 @@ async def history_pagination_callback(
 
         if buttons:
             keyboard.append(buttons)
+            # Add Clear History button below pagination
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🧹 Clear History", callback_data="clear_history"
+                    )
+                ]
+            )
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
                 history_text, parse_mode="MarkdownV2", reply_markup=reply_markup
             )
         else:
             await query.edit_message_text(history_text, parse_mode="MarkdownV2")
-
     except Exception as e:
         logger.error(f"Error in history_pagination_callback: {e}", exc_info=True)
         await query.edit_message_text("❌ An error occurred. Please try again.")
@@ -393,3 +414,74 @@ async def history_pagination_callback(
             db.close()
         except:
             pass
+
+
+async def history_clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle clear history callback: confirm and delete user's completed downloads"""
+    logger = logging.getLogger(__name__)
+    query = update.callback_query
+    await query.answer()
+
+    # Show confirmation prompt
+    if query.data == "clear_history":
+        confirm_kb = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ Confirm", callback_data="clear_history_confirm"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ Cancel", callback_data="clear_history_cancel"
+                    ),
+                ]
+            ]
+        )
+        try:
+            await query.edit_message_text(
+                "⚠️ Are you sure you want to clear your download history? This cannot be undone.",
+                reply_markup=confirm_kb,
+            )
+        except Exception:
+            await query.answer("⚠️ Confirm clearing history.")
+        return
+
+    # Handle confirm
+    if query.data == "clear_history_confirm":
+        user = update.effective_user
+        db = get_db()
+        try:
+            # Resolve internal user id from telegram id
+            db_user = db.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ User not found.")
+                return
+
+            deleted = (
+                db.query(Download)
+                .filter(Download.user_id == db_user.id, Download.status == "completed")
+                .delete()
+            )
+            db.commit()
+            await query.edit_message_text(
+                f"✅ Your download history has been cleared. ({deleted} items)"
+            )
+        except Exception as e:
+            logger.error(f"Error clearing history: {e}", exc_info=True)
+            await query.edit_message_text(
+                "❌ Failed to clear history. Please try again later."
+            )
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+        return
+
+    # Handle cancel
+    if query.data == "clear_history_cancel":
+        # Re-run /history to refresh the message for page 1
+        try:
+            await history_command(update, context)
+        except Exception:
+            await query.edit_message_text("❎ Cancelled.")
+        return
