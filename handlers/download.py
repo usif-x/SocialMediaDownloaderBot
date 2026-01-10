@@ -19,6 +19,7 @@ from utils import (
     telethon_uploader,
 )
 
+
 def normalize_youtube_url(url: str) -> str:
     """Normalize YouTube URL by extracting video ID and stripping extra parameters"""
     # Standard video patterns
@@ -26,7 +27,7 @@ def normalize_youtube_url(url: str) -> str:
         r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})",
         r"(?:youtube\.com/embed/|youtube\.com/v/|youtube\.com/vi/)([a-zA-Z0-9_-]{11})",
     ]
-    
+
     for pattern in video_id_patterns:
         match = re.search(pattern, url)
         if match:
@@ -35,7 +36,7 @@ def normalize_youtube_url(url: str) -> str:
             if "youtu.be" in url:
                 return f"https://youtu.be/{video_id}"
             return f"https://www.youtube.com/watch?v={video_id}"
-            
+
     return url
 
 
@@ -52,27 +53,54 @@ async def handle_url(
     # Use provided URL or get from message
     if url is None:
         url = update.message.text.strip()
-    
 
     url = normalize_youtube_url(url)
 
     logger.info(f"User {user.id} sent URL: {url}")
 
-    # Check if URL is from YouTube
+    # Check if URL is from YouTube or Instagram
     youtube_patterns = [
         r"(https?://)?(www\.)?(youtube\.com|youtu\.be)",
         r"(https?://)?(m\.)?youtube\.com",
         r"(https?://)?youtube\.com/shorts/",
     ]
 
+    instagram_patterns = [
+        r"(https?://)?(www\.)?instagram\.com/(?:reel|reels)/",
+        r"(https?://)?(www\.)?instagram\.com/p/",
+        r"(https?://)?(www\.)?instagram\.com/tv/",
+    ]
+
+    # TikTok URL patterns (supports main site and short vm links)
+    tiktok_patterns = [
+        r"(https?://)?(www\.)?tiktok\.com",
+        r"(https?://)?vm\.tiktok\.com",
+    ]
+
+    facebook_patterns = [
+        r"(https?://)?(www\.)?facebook\.com",
+        r"(https?://)?fb\.watch",
+    ]
+
     is_youtube = any(
         re.search(pattern, url, re.IGNORECASE) for pattern in youtube_patterns
     )
 
-    if not is_youtube:
+    is_instagram = any(
+        re.search(pattern, url, re.IGNORECASE) for pattern in instagram_patterns
+    )
+
+    is_tiktok = any(
+        re.search(pattern, url, re.IGNORECASE) for pattern in tiktok_patterns
+    )
+    is_facebook = any(
+        re.search(pattern, url, re.IGNORECASE) for pattern in facebook_patterns
+    )
+
+    if not is_youtube and not is_instagram and not is_tiktok and not is_facebook:
         await update.message.reply_text(
-            "❌ This bot only supports YouTube links.\n\n"
-            "Please send a valid YouTube video URL or use `@vid [search terms]` to search for videos.",
+            "❌ This bot only supports YouTube, Instagram Reels, TikTok and Facebook links.\n\n"
+            "Please send a valid YouTube, Instagram Reel, TikTok or Facebook video URL.",
             parse_mode="Markdown",
         )
         return
@@ -128,24 +156,68 @@ async def handle_url(
             download.error_message = "Failed to extract video information"
             db.commit()
 
-            # Extract YouTube video ID from URL for retry
-            # Patterns: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
+            # Extract video ID from URL for retry (YouTube or Instagram)
             video_id = None
-            patterns = [
+            platform_prefix = "yt"
+
+            # Try YouTube patterns first
+            youtube_patterns = [
                 r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})",
             ]
-            for pattern in patterns:
+            for pattern in youtube_patterns:
                 match = re.search(pattern, url)
                 if match:
                     video_id = match.group(1)
+                    platform_prefix = "yt"
                     break
+
+            # Try Instagram patterns if not YouTube
+            if not video_id:
+                instagram_patterns = [
+                    r"instagram\.com/(?:reel|reels|p|tv)/([a-zA-Z0-9_-]+)",
+                ]
+                for pattern in instagram_patterns:
+                    match = re.search(pattern, url)
+                    if match:
+                        video_id = match.group(1)
+                        platform_prefix = "ig"
+                        break
+                    # Try TikTok patterns if not found yet
+                    if not video_id:
+                        tiktok_patterns = [
+                            r"tiktok\.com/@[^/]+/video/([0-9]+)",
+                            r"tiktok\.com/v/([0-9]+)",
+                            r"vm\.tiktok\.com/([A-Za-z0-9_-]+)",
+                        ]
+                        for pattern in tiktok_patterns:
+                            match = re.search(pattern, url)
+                            if match:
+                                video_id = match.group(1)
+                                platform_prefix = "tt"
+                                break
+
+                    # Try Facebook patterns if still not found
+                    if not video_id:
+                        facebook_id_patterns = [
+                            r"facebook\.com/(?:reel|reels)/([0-9A-Za-z_-]+)",
+                            r"facebook\.com/.+/videos?/([0-9]+)",
+                            r"facebook\.com/share/v/([A-Za-z0-9_-]+)",
+                            r"fb\.watch/([A-Za-z0-9_-]+)",
+                        ]
+                        for pattern in facebook_id_patterns:
+                            match = re.search(pattern, url)
+                            if match:
+                                video_id = match.group(1)
+                                platform_prefix = "fb"
+                                break
 
             if video_id:
                 # Use video ID in callback - much shorter than full URL
                 keyboard = [
                     [
                         InlineKeyboardButton(
-                            "🔄 Retry", callback_data=f"retry_yt_{video_id}"
+                            "🔄 Retry",
+                            callback_data=f"retry_{platform_prefix}_{video_id}",
                         )
                     ]
                 ]
@@ -247,12 +319,27 @@ async def handle_url(
             thumbnail_url = video_info.get("thumbnail")
             if thumbnail_url:
                 try:
-                    await processing_msg.delete()
-                    await update.message.reply_photo(
-                        photo=thumbnail_url, caption=info_message, parse_mode="Markdown"
-                    )
-                except:
-                    await processing_msg.edit_text(info_message, parse_mode="Markdown")
+                    try:
+                        await processing_msg.delete()
+                    except:
+                        pass
+
+                    try:
+                        await update.message.reply_photo(
+                            photo=thumbnail_url,
+                            caption=info_message,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        try:
+                            await update.message.reply_photo(
+                                photo=thumbnail_url,
+                                caption=info_message,
+                            )
+                        except Exception:
+                            await safe_edit_message(processing_msg, info_message)
+                except Exception:
+                    await safe_edit_message(processing_msg, info_message)
             else:
                 await processing_msg.edit_text(info_message, parse_mode="Markdown")
 
@@ -266,16 +353,32 @@ async def handle_url(
             thumbnail_url = video_info.get("thumbnail")
             if thumbnail_url:
                 try:
-                    await processing_msg.delete()
-                    await update.message.reply_photo(
-                        photo=thumbnail_url,
-                        caption=info_message,
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown",
-                    )
-                except:
-                    await processing_msg.edit_text(
-                        info_message, reply_markup=reply_markup, parse_mode="Markdown"
+                    try:
+                        await processing_msg.delete()
+                    except:
+                        pass
+
+                    try:
+                        await update.message.reply_photo(
+                            photo=thumbnail_url,
+                            caption=info_message,
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        try:
+                            await update.message.reply_photo(
+                                photo=thumbnail_url,
+                                caption=info_message,
+                                reply_markup=reply_markup,
+                            )
+                        except Exception:
+                            await safe_edit_message(
+                                processing_msg, info_message, parse_mode=None
+                            )
+                except Exception:
+                    await safe_edit_message(
+                        processing_msg, info_message, parse_mode=None
                     )
             else:
                 await processing_msg.edit_text(
@@ -511,7 +614,7 @@ async def download_and_send_video(
                 await safe_edit_message(
                     download_msg,
                     f"❌ File too large ({file_size / (1024*1024):.1f}MB).\n"
-                    f"Maximum supported size is 2GB."
+                    f"Maximum supported size is 2GB.",
                 )
                 try:
                     os.remove(file_path)
@@ -567,10 +670,10 @@ async def download_and_send_video(
                 # Run in executor
                 loop = asyncio.get_event_loop()
                 thumb_success = await loop.run_in_executor(None, download_thumb)
-                
+
                 if not thumb_success:
                     thumbnail_path = None
-                    
+
         except Exception as e:
             logger.warning(f"Failed to download thumbnail: {e}")
             thumbnail_path = None
@@ -590,15 +693,17 @@ async def download_and_send_video(
                     # Update only every 5%
                     if int(percentage) - last_percentage[0] >= 5:
                         last_percentage[0] = int(percentage)
-                        
+
                         # Calculate speed and ETA
                         elapsed = time.time() - start_time
                         speed = current / elapsed if elapsed > 0 else 0
                         eta = (total - current) / speed if speed > 0 else 0
-                        
+
                         speed_str = f"{format_file_size(int(speed))}/s"
-                        eta_str = format_duration(int(eta)) if eta > 0 else "Calculating..."
-                        
+                        eta_str = (
+                            format_duration(int(eta)) if eta > 0 else "Calculating..."
+                        )
+
                         try:
                             await safe_edit_message(
                                 download_msg,
@@ -777,7 +882,7 @@ async def download_and_send_video(
                         # Determine width/height
                         video_width = video_info.get("width", 0)
                         video_height = video_info.get("height", 0)
-                        
+
                         # Note: video_info['video_formats'] is used to populate keyboard
                         # We try to find the selected format to get specific dimensions
                         if format_id and video_info.get("video_formats"):

@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import settings
-from database import User, BotSetting, get_db
+from database import BotSetting, User, get_db
 from utils import VideoDownloader
 
 
@@ -26,13 +26,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 language_code=user.language_code,
             )
             db.add(db_user)
-            db.commit() # Commit to save user and get count correctly
+            db.commit()  # Commit to save user and get count correctly
 
             # Check for notification setting
-            setting = db.query(BotSetting).filter(BotSetting.key == "notify_new_user").first()
+            setting = (
+                db.query(BotSetting).filter(BotSetting.key == "notify_new_user").first()
+            )
             if setting and setting.value == "true":
                 total_users = db.query(User).count()
-                
+
                 # Send notification to admin
                 try:
                     admin_msg = (
@@ -43,20 +45,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"📊 **Total Users:** `{total_users}`"
                     )
                     await context.bot.send_message(
-                        chat_id=settings.ADMIN_ID, 
-                        text=admin_msg, 
-                        parse_mode="Markdown"
+                        chat_id=settings.ADMIN_ID, text=admin_msg, parse_mode="Markdown"
                     )
                 except Exception as notify_error:
                     import logging
-                    logging.getLogger(__name__).error(f"Failed to send new user notification: {notify_error}")
+
+                    logging.getLogger(__name__).error(
+                        f"Failed to send new user notification: {notify_error}"
+                    )
 
         else:
             db_user.username = user.username
             db_user.first_name = user.first_name
             db_user.last_name = user.last_name
             db_user.last_activity = datetime.utcnow()
-            
+
             # Handle Quota Reset (Daily)
             now = datetime.utcnow()
             if db_user.daily_quota is None:
@@ -68,7 +71,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif db_user.last_quota_reset.date() < now.date():
                 db_user.used_quota = 0
                 db_user.last_quota_reset = now
-                
+
             db.commit()
 
         # Get values for message
@@ -77,6 +80,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Database error in start_command: {e}")
         used_quota = 0
         total_quota = 10
@@ -88,11 +92,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
-        f"🎥 I'm a YouTube Downloader Bot.\n\n"
+        f"🎥 I'm a Video Downloader Bot.\n\n"
         # f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
-        f"🔍 Type `@vid [search terms]` to search for videos\n"
+        f"🔍 Type `@vid [search terms]` to search for YouTube videos\n"
         f"OR\n"
-        f"🔗 Send me a YouTube link to get started 🚀\n\n"
+        f"🔗 Send me a YouTube, Instagram Reel, TikTok or Facebook video link to get started 🚀\n\n"
         f"ℹ️ For help, use /help\n\n"
         f"👨‍💻 Developer: @YousseifMuhammed"
     )
@@ -111,17 +115,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/restore\\_ID - Restore a previous download\n"
         "/format - Set your preferred download format\n\n"
         "*How to download:*\n"
-        "1️⃣ Send me a YouTube video URL\n"
-        "2️⃣ Wait while I fetch video information\n"
+        "1️⃣ Send me a YouTube, Instagram Reel, TikTok or Facebook URL\n"
+        "2️⃣ Wait while I fetch content information\n"
         "3️⃣ Choose format type (Video/Audio) if available\n"
         "4️⃣ Select quality (if available) and download starts!\n\n"
-        "*How to search for videos:*\n"
+        "*How to search for videos on YouTube:*\n"
         "🔍 Type `@vid [search terms]` in chat\n"
         "Example: `@vid Amr Diab`\n"
         "📱 Tap on any result and result link will send automatically\n\n"
-        "*Supported Platform:*\n"
-        "✅ YouTube\n\n"
-        "Need more help? Just try sending a YouTube link!"
+        "*Supported Platforms:*\n"
+        "✅ YouTube (Videos, Shorts)\n"
+        "✅ Instagram (Videos Only)\n"
+        "✅ TikTok ( Videos Only )\n"
+        "✅ Facebook (Videos & Reels)\n\n"
+        "Need more help? Just try sending a link!"
     )
 
     await update.message.reply_text(help_message, parse_mode="Markdown")

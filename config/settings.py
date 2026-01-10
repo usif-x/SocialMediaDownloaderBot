@@ -33,12 +33,14 @@ class Settings:
     MAX_CONCURRENT_DOWNLOADS: int = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", 5))
     DOWNLOAD_TIMEOUT: int = int(os.getenv("DOWNLOAD_TIMEOUT", 300))
     TEMP_DOWNLOAD_PATH: str = os.getenv("TEMP_DOWNLOAD_PATH", "./downloads")
-    
+
     # Cookie Refresher
-    AUTO_REFRESH_COOKIES: bool = os.getenv("AUTO_REFRESH_COOKIES", "true").lower() == "true"
+    AUTO_REFRESH_COOKIES: bool = (
+        os.getenv("AUTO_REFRESH_COOKIES", "true").lower() == "true"
+    )
 
     # Supported sites info
-    SUPPORTED_SITES = ["YouTube"]
+    SUPPORTED_SITES = ["YouTube", "Instagram"]
 
 
 settings = Settings()
