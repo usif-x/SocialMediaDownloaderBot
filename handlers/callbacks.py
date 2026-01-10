@@ -5,7 +5,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from database import Download, get_db
+from database import Download, User, get_db
 from handlers.download import download_and_send_video, safe_edit_message
 from utils import VideoDownloader, redis_client
 
@@ -297,6 +297,68 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Retry the download by calling handle_url
         await handle_url(update, context, url=url, existing_message=query.message)
+
+    # Handle cancel download
+    elif action in ("cancel_processing", "cancel"):
+        # Support callback_data formats:
+        # - "cancel_processing_{download_id}" -> split -> ['cancel', 'processing', '{id}']
+        # - "cancel_processing_{id}" (legacy) -> ['cancel_processing', '{id}']
+        if action == "cancel_processing":
+            # legacy format: ['cancel_processing', '{id}']
+            if len(callback_data) < 2:
+                await query.answer("❌ Invalid request")
+                return
+            id_part = callback_data[1]
+        else:
+            # new format: ['cancel', 'processing', '{id}']
+            if len(callback_data) < 3:
+                await query.answer("❌ Invalid request")
+                return
+            id_part = callback_data[2]
+
+        try:
+            download_id = int(id_part)
+        except Exception:
+            await query.answer("❌ Invalid download id")
+            return
+
+        db = get_db()
+        try:
+            download = db.query(Download).filter(Download.id == download_id).first()
+            if not download:
+                await query.answer("❌ Download not found")
+                await safe_edit_message(query.message, "❌ Download not found.")
+                return
+
+            if download.status != "processing":
+                await query.answer("❌ Not processing")
+                await safe_edit_message(
+                    query.message, "❌ This download is not processing."
+                )
+                return
+
+            # Mark download as cancelled/failed and clear user's downloading flag
+            download.status = "failed"
+            download.error_message = "Cancelled by user"
+            user_obj = db.query(User).filter(User.id == download.user_id).first()
+            if user_obj:
+                user_obj.is_downloading = False
+            db.commit()
+
+            await query.answer("✅ Download cancelled")
+            await safe_edit_message(
+                query.message,
+                "✅ Download has been cancelled. You can send a new link.",
+            )
+
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"Error cancelling download: {e}", exc_info=True
+            )
+            await query.answer("❌ Failed to cancel")
+            await safe_edit_message(query.message, "❌ Failed to cancel the download.")
+        finally:
+            db.close()
 
     # Handle back to type selection
     elif action == "back":

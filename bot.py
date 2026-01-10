@@ -154,6 +154,10 @@ def main():
         CallbackQueryHandler(history_pagination_callback, pattern="^history_page_")
     )
 
+    application.add_handler(
+        CallbackQueryHandler(handle_quality_selection, pattern="^cancel_processing_")
+    )
+
     # Add callback query handler for subscription check
     application.add_handler(
         CallbackQueryHandler(

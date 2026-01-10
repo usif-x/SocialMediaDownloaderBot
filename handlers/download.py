@@ -99,8 +99,8 @@ async def handle_url(
 
     if not is_youtube and not is_instagram and not is_tiktok and not is_facebook:
         await update.message.reply_text(
-            "❌ This bot only supports YouTube, Instagram Reels, TikTok and Facebook links.\n\n"
-            "Please send a valid YouTube, Instagram Reel, TikTok or Facebook video URL.",
+            "❌ This bot only supports YouTube, Instagram, TikTok and Facebook links.\n\n"
+            "Please send a valid YouTube, Instagram, TikTok or Facebook video link.",
             parse_mode="Markdown",
         )
         return
@@ -137,6 +137,54 @@ async def handle_url(
             )
             return
 
+        # Daily quota reset if day changed
+        now = datetime.utcnow()
+        if not db_user.last_quota_reset or db_user.last_quota_reset.date() < now.date():
+            db_user.used_quota = 0 if db_user.used_quota is None else 0
+            db_user.last_quota_reset = now
+            db.commit()
+
+        # Check daily quota
+        if (
+            db_user.used_quota is not None
+            and db_user.daily_quota is not None
+            and db_user.used_quota >= db_user.daily_quota
+        ):
+            await processing_msg.edit_text(
+                "🔐 You have reached your daily download limit. Please wait until your quota resets tomorrow."
+            )
+            return
+
+        # Check if user already has an active downloading process
+        if db_user.is_downloading:
+            # Find the active download for this user to allow cancellation
+            active_dl = (
+                db.query(Download)
+                .filter(Download.user_id == db_user.id, Download.status == "processing")
+                .order_by(Download.created_at.desc())
+                .first()
+            )
+            keyboard = []
+            if active_dl:
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "🛑 Cancel Download",
+                            callback_data=f"cancel_processing_{active_dl.id}",
+                        )
+                    ]
+                ]
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            await processing_msg.edit_text(
+                "⏳ You already have a download processing. Please wait or cancel it to start a new one.",
+                reply_markup=reply_markup,
+            )
+            return
+
+        # Reserve user's slot for this download
+        db_user.is_downloading = True
+        db.commit()
+
         # Create download record
         download = Download(user_id=db_user.id, url=url, status="processing")
         db.add(download)
@@ -155,6 +203,13 @@ async def handle_url(
             download.status = "failed"
             download.error_message = "Failed to extract video information"
             db.commit()
+
+            # release download slot
+            try:
+                db_user.is_downloading = False
+                db.commit()
+            except:
+                pass
 
             # Extract video ID from URL for retry (YouTube or Instagram)
             video_id = None
@@ -400,6 +455,21 @@ async def handle_url(
                 )
             except:
                 pass
+        # If an error occurred before handing off to download, clear the downloading flag
+        try:
+            if db and db_user:
+                active = (
+                    db.query(Download)
+                    .filter(
+                        Download.user_id == db_user.id, Download.status == "processing"
+                    )
+                    .first()
+                )
+                if not active and db_user.is_downloading:
+                    db_user.is_downloading = False
+                    db.commit()
+        except Exception:
+            pass
     finally:
         try:
             db.close()
@@ -974,4 +1044,38 @@ async def download_and_send_video(
         except:
             pass
     finally:
-        db.close()
+        # Ensure we clear the user's downloading flag and update quota on success
+        try:
+            try:
+                if download:
+                    user_obj = (
+                        db.query(User).filter(User.id == download.user_id).first()
+                    )
+                else:
+                    user_obj = (
+                        db.query(User).filter(User.telegram_id == user_id).first()
+                    )
+                if user_obj:
+                    # Increment used_quota only if download completed successfully
+                    try:
+                        if download and download.status == "completed":
+                            if user_obj.used_quota is None:
+                                user_obj.used_quota = 0
+                            user_obj.used_quota += 1
+                    except Exception:
+                        pass
+
+                    # Clear downloading flag
+                    try:
+                        user_obj.is_downloading = False
+                    except Exception:
+                        pass
+
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"Failed updating user quota/is_downloading: {e}")
+        finally:
+            try:
+                db.close()
+            except:
+                pass
