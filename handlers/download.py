@@ -693,36 +693,36 @@ async def download_and_send_video(
         # Use Telethon for large files
         if use_telethon:
             try:
-                # Progress callback for Telethon upload
-                last_percentage = [0]  # Use list to modify in closure
+                # Progress callback for Telethon upload: refresh every 3 seconds
                 start_time = time.time()
+                last_update = [start_time]  # timestamp of last update
 
                 async def telethon_progress(percentage, current, total):
-                    # Update only every 5%
-                    if int(percentage) - last_percentage[0] >= 5:
-                        last_percentage[0] = int(percentage)
+                    # Refresh every 3 seconds
+                    now = time.time()
+                    if now - last_update[0] < 3:
+                        return
+                    last_update[0] = now
 
-                        # Calculate speed and ETA
-                        elapsed = time.time() - start_time
-                        speed = current / elapsed if elapsed > 0 else 0
-                        eta = (total - current) / speed if speed > 0 else 0
+                    # Calculate speed and ETA
+                    elapsed = now - start_time
+                    speed = current / elapsed if elapsed > 0 else 0
+                    eta = (total - current) / speed if speed > 0 else 0
 
-                        speed_str = f"{format_file_size(int(speed))}/s"
-                        eta_str = (
-                            format_duration(int(eta)) if eta > 0 else "Calculating..."
+                    speed_str = f"{format_file_size(int(speed))}/s"
+                    eta_str = format_duration(int(eta)) if eta > 0 else "Calculating..."
+
+                    try:
+                        await safe_edit_message(
+                            download_msg,
+                            f"📤 Uploading large file...\n\n"
+                            f"Progress: {percentage:.1f}%\n"
+                            f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
+                            f"Speed: {speed_str}\n"
+                            f"Estimated Time: {eta_str}",
                         )
-
-                        try:
-                            await safe_edit_message(
-                                download_msg,
-                                f"📤 Uploading large file...\n\n"
-                                f"Progress: {percentage:.1f}%\n"
-                                f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
-                                f"Speed: {speed_str}\n"
-                                f"ETA: {eta_str}",
-                            )
-                        except:
-                            pass
+                    except:
+                        pass
 
                 # Upload using Telethon (to storage channel)
                 channel_id, message_id = await telethon_uploader.upload_file(
