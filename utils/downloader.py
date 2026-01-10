@@ -125,7 +125,7 @@ class VideoDownloader:
                     for fmt in info["formats"]:
                         ext = fmt.get("ext", "").lower()
                         # Skip storyboards and thumbnails
-                        format_note = fmt.get("format_note", "").lower()
+                        format_note = (fmt.get("format_note") or "").lower()
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
 
@@ -199,7 +199,7 @@ class VideoDownloader:
                         protocol = fmt.get("protocol", "")
 
                         # Special handling for storyboard and thumbnails
-                        format_note = fmt.get("format_note", "").lower()
+                        format_note = (fmt.get("format_note") or "").lower()
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
 
