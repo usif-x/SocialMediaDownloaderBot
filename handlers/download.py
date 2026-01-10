@@ -407,22 +407,30 @@ async def handle_url(
             pass
 
 
-async def safe_edit_message(message, text, parse_mode=None):
+async def safe_edit_message(message, text, parse_mode=None, reply_markup=None):
     """Safely edit a message whether it has text or caption"""
     try:
         if message.photo or message.video or message.audio or message.document:
             # Message has media, edit caption
-            await message.edit_caption(caption=text, parse_mode=parse_mode)
+            await message.edit_caption(
+                caption=text, parse_mode=parse_mode, reply_markup=reply_markup
+            )
         else:
             # Text-only message
-            await message.edit_text(text, parse_mode=parse_mode)
+            await message.edit_text(
+                text, parse_mode=parse_mode, reply_markup=reply_markup
+            )
     except Exception as e:
         # If edit fails, try the other method as fallback
         try:
             if message.text:
-                await message.edit_text(text, parse_mode=parse_mode)
+                await message.edit_text(
+                    text, parse_mode=parse_mode, reply_markup=reply_markup
+                )
             else:
-                await message.edit_caption(caption=text, parse_mode=parse_mode)
+                await message.edit_caption(
+                    caption=text, parse_mode=parse_mode, reply_markup=reply_markup
+                )
         except:
             pass  # Ignore if both fail
 

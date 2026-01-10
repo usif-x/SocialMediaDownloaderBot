@@ -166,15 +166,23 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                     query.message,
                     updated_text,
                     reply_markup=reply_markup,
-                    parse_mode="Markdown",
+                    parse_mode=None,
                 )
         else:
-            await safe_edit_message(
-                query.message,
-                updated_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown",
-            )
+            try:
+                await safe_edit_message(
+                    query.message,
+                    updated_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown",
+                )
+            except:
+                await safe_edit_message(
+                    query.message,
+                    updated_text,
+                    reply_markup=reply_markup,
+                    parse_mode=None,
+                )
 
     # Handle quality selection
     elif action == "quality":
