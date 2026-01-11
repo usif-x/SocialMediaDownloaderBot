@@ -328,7 +328,7 @@ async def handle_url(
                 f"📝 *Title:* {video_info['title']}\n"
                 f"👤 *Uploader:* {video_info['uploader']}\n"
                 f"🌐 *Platform:* {video_info['platform']}\n"
-                f"⏱ *Duration:* {format_duration(video_info['duration'])}\n"
+                f"🕔 *Duration:* {format_duration(video_info['duration'])}\n"
                 f"👁 *Views:* {format_views(video_info['views'])}\n\n"
                 f"🎯 *Select Format Type:*"
             )

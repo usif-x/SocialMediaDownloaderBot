@@ -718,7 +718,7 @@ class VideoDownloader:
                     f"{bar} {percentage:.1f}%\n\n"
                     f"📦 {downloaded_str}\n"
                     f"⚡ {speed_str}\n"
-                    f"⏱ ETA: {eta_str}"
+                    f"🕔 ETA: {eta_str}"
                 )
 
                 self._progress_callback(percentage, status_text)

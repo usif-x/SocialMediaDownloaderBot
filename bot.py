@@ -12,6 +12,7 @@ from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    InlineQueryHandler,
     MessageHandler,
     TypeHandler,
     filters,
@@ -37,6 +38,7 @@ from handlers import (
 
 # Import the ban check middleware
 from handlers.middleware import check_user_ban
+from handlers.search import inline_query
 from scripts.cookie_refresher import CookieRefresher
 
 # Configure logging
@@ -73,10 +75,21 @@ async def error_handler(update: object, context: object):
     """Handle errors"""
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
 
-    if update and hasattr(update, "effective_message"):
-        await update.effective_message.reply_text(
-            "❌ An error occurred while processing your request. Please try again later."
-        )
+    # Some updates (like inline queries) don't have an effective_message.
+    # Guard before trying to reply to avoid AttributeError.
+    try:
+        effective_message = getattr(update, "effective_message", None)
+        if effective_message is not None:
+            await effective_message.reply_text(
+                "❌ An error occurred while processing your request. Please try again later."
+            )
+        else:
+            logger.debug(
+                "No effective_message on update; skipping user-facing error reply"
+            )
+    except Exception:
+        # Avoid raising from the error handler itself
+        logger.exception("Failed while sending error reply")
 
 
 def main():
@@ -172,6 +185,9 @@ def main():
     application.add_handler(
         CallbackQueryHandler(format_callback, pattern="^set_format_")
     )
+
+    # Inline query handler for YouTube search (10 results per page)
+    application.add_handler(InlineQueryHandler(inline_query))
 
     # Add message handler for URLs - MUST be last
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))

@@ -438,7 +438,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
                 f"📝 *Title:* {video_info['title']}\n"
                 f"👤 *Uploader:* {video_info['uploader']}\n"
                 f"🌐 *Platform:* {video_info['platform']}\n"
-                f"⏱ *Duration:* {format_duration(video_info['duration'])}\n"
+                f"🕔 *Duration:* {format_duration(video_info['duration'])}\n"
                 f"👁 *Views:* {format_views(video_info['views'])}\n\n"
                 f"🎯 *Select Format Type:*"
             )
