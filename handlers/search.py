@@ -55,7 +55,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     inline_results = []
     for video in results[:10]:
-        description = f"🕔 {video.get('time','')} • 👁 {video.get('views','')}"
+        description = f"{video.get('time','')} • {video.get('views','')}"
         result = InlineQueryResultArticle(
             id=str(uuid4()),
             title=video.get("title", "Untitled"),
