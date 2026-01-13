@@ -92,10 +92,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
-        f"🎥 I'm a SocialMedia Downloader Bot.\n\n"
-        f"🔍 Type `@A6KllBot [search terms]` to search for YouTube videos\n"
+        f"🎥 I'm a [SocialMedia Downloader Bot](https://t.me/A6KllBot).\n\n"
+        f"🔗 Send me a content link to get started 🚀\n\n"
         f"OR\n"
-        f"🔗 Send me content link to get started 🚀\n\n"
+        f"🔍 Type `@A6KllBot [search terms]` to search for YouTube videos\n"
         f"ℹ️ For help, use /help\n\n"
         f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"👨‍💻 Developer: @YousseifMuhammed"
@@ -115,7 +115,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/restore\\_ID - Restore a previous download\n"
         "/format - Set your preferred download format\n\n"
         "*How to download:*\n"
-        "1️⃣ Send me a YouTube, Instagram, TikTok or Facebook video link\n"
+        "1️⃣ Send me a content link\n"
         "2️⃣ Wait while I fetch content information\n"
         "3️⃣ Choose format type (Video/Audio) if available\n"
         "4️⃣ Select quality (if available) and download starts!\n\n"
