@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -82,6 +83,12 @@ async def handle_url(
         r"(https?://)?fb\.watch",
     ]
 
+    # SoundCloud patterns
+    soundcloud_patterns = [
+        r"(https?://)?(www\.)?soundcloud\.com",
+        r"(https?://)?(m\.)?soundcloud\.com",
+    ]
+
     is_youtube = any(
         re.search(pattern, url, re.IGNORECASE) for pattern in youtube_patterns
     )
@@ -93,14 +100,25 @@ async def handle_url(
     is_tiktok = any(
         re.search(pattern, url, re.IGNORECASE) for pattern in tiktok_patterns
     )
+
     is_facebook = any(
         re.search(pattern, url, re.IGNORECASE) for pattern in facebook_patterns
     )
 
-    if not is_youtube and not is_instagram and not is_tiktok and not is_facebook:
+    is_soundcloud = any(
+        re.search(pattern, url, re.IGNORECASE) for pattern in soundcloud_patterns
+    )
+
+    if (
+        not is_youtube
+        and not is_instagram
+        and not is_tiktok
+        and not is_facebook
+        and not is_soundcloud
+    ):
         await update.message.reply_text(
-            "❌ This bot only supports YouTube, Instagram, TikTok and Facebook links.\n\n"
-            "Please send a valid YouTube, Instagram, TikTok or Facebook video link.",
+            "❌ This bot only supports YouTube, Instagram, TikTok, Facebook and SoundCloud links.\n\n"
+            "Please send a valid YouTube, Instagram, TikTok, Facebook or SoundCloud link.",
             parse_mode="Markdown",
         )
         return
@@ -211,7 +229,7 @@ async def handle_url(
             except:
                 pass
 
-            # Extract video ID from URL for retry (YouTube or Instagram)
+            # Extract video ID from URL for retry (YouTube, Instagram, TikTok, Facebook, SoundCloud)
             video_id = None
             platform_prefix = "yt"
 
@@ -237,34 +255,52 @@ async def handle_url(
                         video_id = match.group(1)
                         platform_prefix = "ig"
                         break
-                    # Try TikTok patterns if not found yet
-                    if not video_id:
-                        tiktok_patterns = [
-                            r"tiktok\.com/@[^/]+/video/([0-9]+)",
-                            r"tiktok\.com/v/([0-9]+)",
-                            r"vm\.tiktok\.com/([A-Za-z0-9_-]+)",
-                        ]
-                        for pattern in tiktok_patterns:
-                            match = re.search(pattern, url)
-                            if match:
-                                video_id = match.group(1)
-                                platform_prefix = "tt"
-                                break
 
-                    # Try Facebook patterns if still not found
-                    if not video_id:
-                        facebook_id_patterns = [
-                            r"facebook\.com/(?:reel|reels)/([0-9A-Za-z_-]+)",
-                            r"facebook\.com/.+/videos?/([0-9]+)",
-                            r"facebook\.com/share/v/([A-Za-z0-9_-]+)",
-                            r"fb\.watch/([A-Za-z0-9_-]+)",
-                        ]
-                        for pattern in facebook_id_patterns:
-                            match = re.search(pattern, url)
-                            if match:
-                                video_id = match.group(1)
-                                platform_prefix = "fb"
-                                break
+            # Try TikTok patterns if not found yet
+            if not video_id:
+                tiktok_patterns = [
+                    r"tiktok\.com/@[^/]+/video/([0-9]+)",
+                    r"tiktok\.com/v/([0-9]+)",
+                    r"vm\.tiktok\.com/([A-Za-z0-9_-]+)",
+                ]
+                for pattern in tiktok_patterns:
+                    match = re.search(pattern, url)
+                    if match:
+                        video_id = match.group(1)
+                        platform_prefix = "tt"
+                        break
+
+            # Try Facebook patterns if still not found
+            if not video_id:
+                facebook_id_patterns = [
+                    r"facebook\.com/(?:reel|reels)/([0-9A-Za-z_-]+)",
+                    r"facebook\.com/.+/videos?/([0-9]+)",
+                    r"facebook\.com/share/v/([A-Za-z0-9_-]+)",
+                    r"fb\.watch/([A-Za-z0-9_-]+)",
+                ]
+                for pattern in facebook_id_patterns:
+                    match = re.search(pattern, url)
+                    if match:
+                        video_id = match.group(1)
+                        platform_prefix = "fb"
+                        break
+
+            # Try Spotify if still not found
+            # (Spotify support removed)
+
+            # Try SoundCloud if still not found
+            if not video_id:
+                soundcloud_id_patterns = [
+                    r"soundcloud\.com/([^?#]+)",
+                ]
+                for pattern in soundcloud_id_patterns:
+                    match = re.search(pattern, url)
+                    if match:
+                        raw_id = match.group(1).rstrip("/")
+                        # URL-encode the track path (artist/track) for safe callback data
+                        video_id = urllib.parse.quote_plus(raw_id)
+                        platform_prefix = "sc"
+                        break
 
             if video_id:
                 # Use video ID in callback - much shorter than full URL
@@ -349,7 +385,7 @@ async def handle_url(
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        "🎵 Audio Only", callback_data=f"type_audio_{download.id}"
+                        "🎵 Audio", callback_data=f"type_audio_{download.id}"
                     )
                 ]
             )
@@ -426,6 +462,7 @@ async def handle_url(
                                 photo=thumbnail_url,
                                 caption=info_message,
                                 reply_markup=reply_markup,
+                                parse_mode="MarkdownV2",
                             )
                         except Exception:
                             await safe_edit_message(

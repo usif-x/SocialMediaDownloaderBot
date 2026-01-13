@@ -93,11 +93,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
         f"🎥 I'm a SocialMedia Downloader Bot.\n\n"
-        f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"🔍 Type `@A6KllBot [search terms]` to search for YouTube videos\n"
         f"OR\n"
-        f"🔗 Send me a YouTube, Instagram, TikTok or Facebook video link to get started 🚀\n\n"
+        f"🔗 Send me content link to get started 🚀\n\n"
         f"ℹ️ For help, use /help\n\n"
+        f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"👨‍💻 Developer: @YousseifMuhammed"
     )
 
@@ -127,7 +127,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ YouTube (Videos, Shorts)\n"
         "✅ Instagram (Videos Only)\n"
         "✅ TikTok (Videos Only)\n"
-        "✅ Facebook (Videos Only)\n\n"
+        "✅ Facebook (Videos Only)\n"
+        "✅ Soundcloud\n\n"
         "Need more help? Just try sending a link!"
     )
 

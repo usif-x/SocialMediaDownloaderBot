@@ -401,7 +401,7 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        "🎵 Audio Only", callback_data=f"type_audio_{download_id}"
+                        "🎵 Audio", callback_data=f"type_audio_{download_id}"
                     )
                 ]
             )
