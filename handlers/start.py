@@ -93,15 +93,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         f"👋 Welcome {user.first_name}!\n\n"
         f"🎥 I'm a [SocialMedia Downloader Bot](https://t.me/A6KllBot).\n\n"
-        f"🔗 Send me a content link to get started 🚀\n\n"
+        f"🔗 Send me a content link to get started 🚀\n"
         f"OR\n"
-        f"🔍 Type `@A6KllBot [search terms]` to search for YouTube videos\n"
-        f"ℹ️ For help, use /help\n\n"
+        f"🔍 Type `@A6KllBot [search terms]` to search for YouTube videos\n\n"
+        f"ℹ️ For more help, use /help\n\n"
         f"📊 **Your Daily Quota:** `{used_quota}/{total_quota}`\n\n"
         f"👨‍💻 Developer: @YousseifMuhammed"
     )
 
-    await update.message.reply_text(welcome_message, parse_mode="Markdown")
+    await update.message.reply_text(
+        welcome_message, parse_mode="Markdown", disable_web_page_preview=True
+    )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
