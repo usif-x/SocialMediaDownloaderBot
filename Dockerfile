@@ -8,6 +8,8 @@ ENV PYTHONUNBUFFERED=1
 # Playwright image has browser deps, but we need ffmpeg and xvfb for our specific usage
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ffmpeg \
+  nodejs \
+  npm \
   gcc \
   libpq-dev \
   xvfb \
@@ -19,6 +21,8 @@ WORKDIR /app
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Ensure yt-dlp is the latest (improves EJS/challenge handling)
+RUN pip install --no-cache-dir -U yt-dlp
 
 # Browsers are already installed in this image, so we don't need 'playwright install'
 
