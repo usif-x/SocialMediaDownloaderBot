@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import shutil
+import subprocess
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -539,6 +541,30 @@ class VideoDownloader:
                 },
             ]
 
+        # Log ffmpeg/ffprobe availability for debugging merge/postprocess failures
+        try:
+            ffmpeg_path = shutil.which("ffmpeg")
+            ffprobe_path = shutil.which("ffprobe")
+            if ffmpeg_path:
+                try:
+                    out = subprocess.check_output(
+                        [ffmpeg_path, "-version"], stderr=subprocess.STDOUT
+                    )
+                    logger.info(f"ffmpeg found: {out.decode().splitlines()[0]}")
+                except Exception as e:
+                    logger.warning(f"ffmpeg found but failed to run - {e}")
+            else:
+                logger.warning(
+                    "ffmpeg not found in PATH. Postprocessing/merging may fail."
+                )
+
+            if not ffprobe_path:
+                logger.warning(
+                    "ffprobe not found in PATH. Some extractors may have limited info."
+                )
+        except Exception:
+            pass
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -657,7 +683,56 @@ class VideoDownloader:
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
             logger.error(f"Download error: {error_msg}")
-            return None, f"Download failed: {error_msg[:100]}"
+
+            # Specific handling for empty downloaded file: try a safer fallback
+            if (
+                "downloaded file is empty" in error_msg.lower()
+                or "the downloaded file is empty" in error_msg.lower()
+            ):
+                logger.warning(
+                    "Detected empty downloaded file from yt-dlp. Attempting fallback simple download..."
+                )
+                try:
+                    fallback_opts = ydl_opts.copy()
+                    fallback_opts["format"] = "best"
+                    fallback_opts.pop("merge_output_format", None)
+                    fallback_opts.pop("postprocessors", None)
+                    fallback_opts["noprogress"] = True
+                    # Attach our logger so we capture yt-dlp debug if needed
+                    fallback_opts["logger"] = logger
+
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                        info_fb = ydl_fb.extract_info(url, download=True)
+                        if info_fb:
+                            filename_fb = ydl_fb.prepare_filename(info_fb)
+                            base_fb = os.path.splitext(filename_fb)[0]
+
+                            # Check likely output files
+                            if (
+                                os.path.exists(filename_fb)
+                                and os.path.getsize(filename_fb) > 0
+                            ):
+                                return filename_fb, None
+
+                            for ext in (
+                                [".mp4", ".webm", ".mkv", ".mov", ".avi"]
+                                if format_type != "audio"
+                                else [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
+                            ):
+                                test_path = f"{base_fb}{ext}"
+                                if (
+                                    os.path.exists(test_path)
+                                    and os.path.getsize(test_path) > 0
+                                ):
+                                    return test_path, None
+
+                    logger.warning(
+                        "Fallback simple download did not produce a valid file"
+                    )
+                except Exception as fb_e:
+                    logger.error(f"Fallback download attempt raised: {fb_e}")
+
+            return None, f"Download failed: {error_msg[:200]}"
         except Exception as e:
             logger.error(f"Error downloading: {e}", exc_info=True)
             return None, str(e)[:100]
