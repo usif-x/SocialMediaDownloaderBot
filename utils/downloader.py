@@ -555,39 +555,104 @@ class VideoDownloader:
                 else:
                     possible_extensions = [".mp4", ".webm", ".mkv", ".mov", ".avi"]
 
-                # Try original filename first
-                if os.path.exists(filename):
-                    return filename, None
+                def _is_valid_file(path: str) -> bool:
+                    try:
+                        return os.path.exists(path) and os.path.getsize(path) > 0
+                    except Exception:
+                        return False
 
-                # Try with different extensions
-                for ext in possible_extensions:
-                    test_path = f"{base_name}{ext}"
-                    if os.path.exists(test_path):
-                        return test_path, None
+                # Helper to search candidate files
+                def _find_candidate_file() -> Optional[str]:
+                    # Try original filename first
+                    if _is_valid_file(filename):
+                        return filename
 
-                # Find latest file in directory
-                if os.path.exists(user_path):
-                    latest_file = None
-                    latest_time = 0
+                    # Try with different extensions
+                    for ext in possible_extensions:
+                        test_path = f"{base_name}{ext}"
+                        if _is_valid_file(test_path):
+                            return test_path
 
-                    for f in os.listdir(user_path):
-                        full_path = os.path.join(user_path, f)
-                        if os.path.isfile(full_path):
-                            # Check if file has correct extension
-                            if any(
-                                full_path.endswith(ext) for ext in possible_extensions
-                            ):
-                                file_time = os.path.getmtime(full_path)
-                                # Only consider files modified in the last 60 seconds
-                                if time.time() - file_time < 60:
-                                    if file_time > latest_time:
-                                        latest_time = file_time
-                                        latest_file = full_path
+                    # Find latest file in directory
+                    if os.path.exists(user_path):
+                        latest_file = None
+                        latest_time = 0
+                        for f in os.listdir(user_path):
+                            full_path = os.path.join(user_path, f)
+                            if os.path.isfile(full_path):
+                                if any(
+                                    full_path.endswith(ext)
+                                    for ext in possible_extensions
+                                ):
+                                    file_time = os.path.getmtime(full_path)
+                                    # Only consider files modified in the last 60 seconds
+                                    if time.time() - file_time < 60:
+                                        if file_time > latest_time:
+                                            latest_time = file_time
+                                            latest_file = full_path
 
-                    if latest_file:
-                        return latest_file, None
+                        if latest_file and _is_valid_file(latest_file):
+                            return latest_file
 
-                return None, "File not found after download"
+                    return None
+
+                candidate = _find_candidate_file()
+
+                # If the candidate is missing or zero-length, attempt a simplified fallback
+                if not candidate:
+                    logger.warning(
+                        "Downloaded file not found or empty, attempting simplified fallback download"
+                    )
+
+                    # Fallback: try again with a simpler format and minimal postprocessors
+                    try:
+                        fallback_opts = ydl_opts.copy()
+                        fallback_opts["format"] = "best"
+                        # Avoid complex merging/postprocessing which can produce empty files if ffmpeg errors
+                        fallback_opts.pop("merge_output_format", None)
+                        fallback_opts.pop("postprocessors", None)
+                        fallback_opts["noprogress"] = True
+
+                        with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                            info_fb = ydl_fb.extract_info(url, download=True)
+                            if info_fb:
+                                filename_fb = ydl_fb.prepare_filename(info_fb)
+                                base_fb = os.path.splitext(filename_fb)[0]
+
+                                # check same set of candidate locations
+                                for ext in possible_extensions:
+                                    test_path = f"{base_fb}{ext}"
+                                    if _is_valid_file(test_path):
+                                        return test_path, None
+
+                                if _is_valid_file(filename_fb):
+                                    return filename_fb, None
+
+                                # last resort: scan user path again
+                                if os.path.exists(user_path):
+                                    latest_file = None
+                                    latest_time = 0
+                                    for f in os.listdir(user_path):
+                                        full_path = os.path.join(user_path, f)
+                                        if os.path.isfile(full_path) and any(
+                                            full_path.endswith(ext)
+                                            for ext in possible_extensions
+                                        ):
+                                            file_time = os.path.getmtime(full_path)
+                                            if (
+                                                time.time() - file_time < 60
+                                                and file_time > latest_time
+                                            ):
+                                                latest_time = file_time
+                                                latest_file = full_path
+                                    if latest_file and _is_valid_file(latest_file):
+                                        return latest_file, None
+                    except Exception as e:
+                        logger.warning(f"Fallback download attempt failed: {e}")
+
+                    return None, "Downloaded file is empty or not found"
+
+                return candidate, None
 
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
