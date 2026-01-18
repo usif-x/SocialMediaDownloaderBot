@@ -451,8 +451,10 @@ class VideoDownloader:
         user_path = os.path.join(self.download_path, str(user_id))
         os.makedirs(user_path, exist_ok=True)
 
-        # Use a safe, ASCII-only filename template
-        output_template = os.path.join(user_path, "%(title).200B.%(ext)s")
+        # CRITICAL FIX: Use absolute path to prevent path resolution issues
+        # yt-dlp sometimes strips leading ./ which causes FFmpeg to look in wrong directory
+        user_path_abs = os.path.abspath(user_path)
+        output_template = os.path.join(user_path_abs, "%(title).200B.%(ext)s")
 
         # Detect if this is Instagram
         is_instagram = "instagram.com" in url.lower()
@@ -569,8 +571,8 @@ class VideoDownloader:
                 logger.info(f"yt-dlp prepared filename: {filename}")
 
                 # List all files in the directory for debugging
-                if os.path.exists(user_path):
-                    all_files = os.listdir(user_path)
+                if os.path.exists(user_path_abs):
+                    all_files = os.listdir(user_path_abs)
                     logger.info(f"Files in download directory: {all_files}")
 
                 # Strategy 1: Check if the expected file exists
@@ -594,13 +596,13 @@ class VideoDownloader:
                         return test_path, None
 
                 # Strategy 3: Find most recent file with correct extension
-                if os.path.exists(user_path):
+                if os.path.exists(user_path_abs):
                     latest_file = None
                     latest_time = 0
                     current_time = time.time()
 
                     for f in all_files:
-                        full_path = os.path.join(user_path, f)
+                        full_path = os.path.join(user_path_abs, f)
                         if os.path.isfile(full_path):
                             # Check extension
                             if any(
@@ -624,7 +626,7 @@ class VideoDownloader:
                 # If we get here, something went wrong
                 logger.error(f"✗ File not found after download")
                 logger.error(f"  Expected: {filename}")
-                logger.error(f"  Directory: {user_path}")
+                logger.error(f"  Directory: {user_path_abs}")
                 logger.error(
                     f"  Contents: {all_files if 'all_files' in locals() else 'N/A'}"
                 )
