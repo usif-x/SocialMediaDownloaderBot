@@ -438,7 +438,7 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
-        FIXED for Unicode/emoji filename issues
+        FIXED: Prevent file deletion during post-processing
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
@@ -452,7 +452,6 @@ class VideoDownloader:
         os.makedirs(user_path, exist_ok=True)
 
         # Use a safe, ASCII-only filename template
-        # This prevents issues with Unicode, emojis, and special characters
         output_template = os.path.join(user_path, "%(title).200B.%(ext)s")
 
         # Detect if this is Instagram
@@ -488,10 +487,7 @@ class VideoDownloader:
             "socket_timeout": 60,
             "retries": 3,
             "fragment_retries": 3,
-            # CRITICAL FIX: Restrict filenames to ASCII-safe characters
-            # This prevents FFmpeg from failing on Unicode/emoji filenames
             "restrictfilenames": True,
-            # Also enable windowsfilenames to be extra safe
             "windowsfilenames": True,
             "progress_hooks": [self._progress_hook],
             "http_headers": {
@@ -503,8 +499,9 @@ class VideoDownloader:
             "remote_components": ["ejs:github"],
             "js": "deno",
             "allow_unplayable_formats": True,
-            # Don't keep intermediate files
-            "keepvideo": False,
+            # CRITICAL FIX: Keep video files during merge to prevent deletion
+            # This prevents FFmpeg from trying to access deleted intermediate files
+            "keepvideo": True,
         }
 
         # Add cookie support
@@ -512,21 +509,23 @@ class VideoDownloader:
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
 
-        # Configure postprocessors based on platform
+        # Configure postprocessors based on platform and format type
         if format_type == "video":
             ydl_opts["writethumbnail"] = True
 
             if is_instagram:
+                # Instagram: minimal processing
                 ydl_opts["postprocessors"] = [
                     {
                         "key": "FFmpegMetadata",
                     },
                 ]
             else:
-                ydl_opts["merge_output_format"] = "mp4"
+                # Other platforms: Use simpler post-processing to avoid file conflicts
+                # IMPORTANT: Don't use FFmpegVideoRemuxer, use FFmpegVideoConvertor instead
                 ydl_opts["postprocessors"] = [
                     {
-                        "key": "FFmpegVideoRemuxer",
+                        "key": "FFmpegVideoConvertor",
                         "preferedformat": "mp4",
                     },
                     {
@@ -538,6 +537,7 @@ class VideoDownloader:
                     },
                 ]
         else:
+            # Audio extraction
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
@@ -555,17 +555,23 @@ class VideoDownloader:
             ]
 
         try:
+            logger.info(f"Starting download with format: {format_string}")
+            logger.info(f"Output template: {output_template}")
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
 
                 if not info:
                     return None, "Failed to download"
 
-                # Get the filename that yt-dlp actually used
-                # IMPORTANT: This respects restrictfilenames sanitization
+                # Get the filename that yt-dlp prepared
                 filename = ydl.prepare_filename(info)
+                logger.info(f"yt-dlp prepared filename: {filename}")
 
-                logger.debug(f"Expected filename: {filename}")
+                # List all files in the directory for debugging
+                if os.path.exists(user_path):
+                    all_files = os.listdir(user_path)
+                    logger.info(f"Files in download directory: {all_files}")
 
                 # Strategy 1: Check if the expected file exists
                 if os.path.exists(filename):
@@ -579,20 +585,16 @@ class VideoDownloader:
                 else:
                     possible_extensions = [".mp4", ".webm", ".mkv", ".mov", ".avi"]
 
+                logger.info(f"Checking base name: {base_name}")
                 for ext in possible_extensions:
                     test_path = f"{base_name}{ext}"
+                    logger.debug(f"  Trying: {test_path}")
                     if os.path.exists(test_path):
                         logger.info(f"✓ Found file with extension {ext}: {test_path}")
                         return test_path, None
 
-                # Strategy 3: List all files in user directory for debugging
+                # Strategy 3: Find most recent file with correct extension
                 if os.path.exists(user_path):
-                    all_files = os.listdir(user_path)
-                    logger.warning(
-                        f"Expected file not found. Directory contents: {all_files}"
-                    )
-
-                    # Find most recent file matching the type
                     latest_file = None
                     latest_time = 0
                     current_time = time.time()
@@ -608,6 +610,9 @@ class VideoDownloader:
                                 file_time = os.path.getmtime(full_path)
                                 # Only consider very recent files (last 2 minutes)
                                 if current_time - file_time < 120:
+                                    logger.debug(
+                                        f"  Candidate: {f} (age: {current_time - file_time:.1f}s)"
+                                    )
                                     if file_time > latest_time:
                                         latest_time = file_time
                                         latest_file = full_path
@@ -616,10 +621,12 @@ class VideoDownloader:
                         logger.info(f"✓ Found latest matching file: {latest_file}")
                         return latest_file, None
 
-                logger.error(f"✗ File not found. Expected: {filename}")
-                logger.error(f"✗ Directory: {user_path}")
+                # If we get here, something went wrong
+                logger.error(f"✗ File not found after download")
+                logger.error(f"  Expected: {filename}")
+                logger.error(f"  Directory: {user_path}")
                 logger.error(
-                    f"✗ Contents: {os.listdir(user_path) if os.path.exists(user_path) else 'N/A'}"
+                    f"  Contents: {all_files if 'all_files' in locals() else 'N/A'}"
                 )
                 return None, "File not found after download"
 
