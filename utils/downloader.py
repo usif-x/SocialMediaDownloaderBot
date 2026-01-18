@@ -1,8 +1,6 @@
 import asyncio
 import logging
 import os
-import shutil
-import subprocess
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -45,17 +43,12 @@ class VideoDownloader:
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
-                "youtube": {"player_client": ["web"], "skip": ["dash", "hls"]},
+                "youtube": {"player_client": ["android", "web"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
-            "js": True,
-            "no_check_certificate": True,
-            "extractor_retries": 3,
-            "remote_components": ["ejs:github"],
-            "logger": logger,
         }
 
         # Add cookie support for YouTube and other sites
@@ -483,25 +476,15 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
-            "ignoreerrors": True,
-            "ignore_no_formats_error": True,
+            "ignoreerrors": False,
             "socket_timeout": 60,
             "retries": 3,
             "fragment_retries": 3,
-            "extractor_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
-            "extractor_args": {
-                "youtube": {"player_client": ["web"], "skip": ["dash", "hls"]},
-            },
-            "js": True,
-            "no_check_certificate": True,
-            "extractor_retries": 3,
-            "remote_components": ["ejs:github"],
-            "logger": logger,
         }
 
         # Add cookie support
@@ -556,30 +539,6 @@ class VideoDownloader:
                 },
             ]
 
-        # Log ffmpeg/ffprobe availability for debugging merge/postprocess failures
-        try:
-            ffmpeg_path = shutil.which("ffmpeg")
-            ffprobe_path = shutil.which("ffprobe")
-            if ffmpeg_path:
-                try:
-                    out = subprocess.check_output(
-                        [ffmpeg_path, "-version"], stderr=subprocess.STDOUT
-                    )
-                    logger.info(f"ffmpeg found: {out.decode().splitlines()[0]}")
-                except Exception as e:
-                    logger.warning(f"ffmpeg found but failed to run - {e}")
-            else:
-                logger.warning(
-                    "ffmpeg not found in PATH. Postprocessing/merging may fail."
-                )
-
-            if not ffprobe_path:
-                logger.warning(
-                    "ffprobe not found in PATH. Some extractors may have limited info."
-                )
-        except Exception:
-            pass
-
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -596,158 +555,44 @@ class VideoDownloader:
                 else:
                     possible_extensions = [".mp4", ".webm", ".mkv", ".mov", ".avi"]
 
-                def _is_valid_file(path: str) -> bool:
-                    try:
-                        return os.path.exists(path) and os.path.getsize(path) > 0
-                    except Exception:
-                        return False
+                # Try original filename first
+                if os.path.exists(filename):
+                    return filename, None
 
-                # Helper to search candidate files
-                def _find_candidate_file() -> Optional[str]:
-                    # Try original filename first
-                    if _is_valid_file(filename):
-                        return filename
+                # Try with different extensions
+                for ext in possible_extensions:
+                    test_path = f"{base_name}{ext}"
+                    if os.path.exists(test_path):
+                        return test_path, None
 
-                    # Try with different extensions
-                    for ext in possible_extensions:
-                        test_path = f"{base_name}{ext}"
-                        if _is_valid_file(test_path):
-                            return test_path
+                # Find latest file in directory
+                if os.path.exists(user_path):
+                    latest_file = None
+                    latest_time = 0
 
-                    # Find latest file in directory
-                    if os.path.exists(user_path):
-                        latest_file = None
-                        latest_time = 0
-                        for f in os.listdir(user_path):
-                            full_path = os.path.join(user_path, f)
-                            if os.path.isfile(full_path):
-                                if any(
-                                    full_path.endswith(ext)
-                                    for ext in possible_extensions
-                                ):
-                                    file_time = os.path.getmtime(full_path)
-                                    # Only consider files modified in the last 60 seconds
-                                    if time.time() - file_time < 60:
-                                        if file_time > latest_time:
-                                            latest_time = file_time
-                                            latest_file = full_path
+                    for f in os.listdir(user_path):
+                        full_path = os.path.join(user_path, f)
+                        if os.path.isfile(full_path):
+                            # Check if file has correct extension
+                            if any(
+                                full_path.endswith(ext) for ext in possible_extensions
+                            ):
+                                file_time = os.path.getmtime(full_path)
+                                # Only consider files modified in the last 60 seconds
+                                if time.time() - file_time < 60:
+                                    if file_time > latest_time:
+                                        latest_time = file_time
+                                        latest_file = full_path
 
-                        if latest_file and _is_valid_file(latest_file):
-                            return latest_file
+                    if latest_file:
+                        return latest_file, None
 
-                    return None
-
-                candidate = _find_candidate_file()
-
-                # If the candidate is missing or zero-length, attempt a simplified fallback
-                if not candidate:
-                    logger.warning(
-                        "Downloaded file not found or empty, attempting simplified fallback download"
-                    )
-
-                    # Fallback: try again with a simpler format and minimal postprocessors
-                    try:
-                        fallback_opts = ydl_opts.copy()
-                        fallback_opts["format"] = "best"
-                        # Avoid complex merging/postprocessing which can produce empty files if ffmpeg errors
-                        fallback_opts.pop("merge_output_format", None)
-                        fallback_opts.pop("postprocessors", None)
-                        fallback_opts["noprogress"] = True
-
-                        with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
-                            info_fb = ydl_fb.extract_info(url, download=True)
-                            if info_fb:
-                                filename_fb = ydl_fb.prepare_filename(info_fb)
-                                base_fb = os.path.splitext(filename_fb)[0]
-
-                                # check same set of candidate locations
-                                for ext in possible_extensions:
-                                    test_path = f"{base_fb}{ext}"
-                                    if _is_valid_file(test_path):
-                                        return test_path, None
-
-                                if _is_valid_file(filename_fb):
-                                    return filename_fb, None
-
-                                # last resort: scan user path again
-                                if os.path.exists(user_path):
-                                    latest_file = None
-                                    latest_time = 0
-                                    for f in os.listdir(user_path):
-                                        full_path = os.path.join(user_path, f)
-                                        if os.path.isfile(full_path) and any(
-                                            full_path.endswith(ext)
-                                            for ext in possible_extensions
-                                        ):
-                                            file_time = os.path.getmtime(full_path)
-                                            if (
-                                                time.time() - file_time < 60
-                                                and file_time > latest_time
-                                            ):
-                                                latest_time = file_time
-                                                latest_file = full_path
-                                    if latest_file and _is_valid_file(latest_file):
-                                        return latest_file, None
-                    except Exception as e:
-                        logger.warning(f"Fallback download attempt failed: {e}")
-
-                    return None, "Downloaded file is empty or not found"
-
-                return candidate, None
+                return None, "File not found after download"
 
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
             logger.error(f"Download error: {error_msg}")
-
-            # Specific handling for empty downloaded file: try a safer fallback
-            if (
-                "downloaded file is empty" in error_msg.lower()
-                or "the downloaded file is empty" in error_msg.lower()
-            ):
-                logger.warning(
-                    "Detected empty downloaded file from yt-dlp. Attempting fallback simple download..."
-                )
-                try:
-                    fallback_opts = ydl_opts.copy()
-                    fallback_opts["format"] = "best"
-                    fallback_opts.pop("merge_output_format", None)
-                    fallback_opts.pop("postprocessors", None)
-                    fallback_opts["noprogress"] = True
-                    # Attach our logger so we capture yt-dlp debug if needed
-                    fallback_opts["logger"] = logger
-
-                    with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
-                        info_fb = ydl_fb.extract_info(url, download=True)
-                        if info_fb:
-                            filename_fb = ydl_fb.prepare_filename(info_fb)
-                            base_fb = os.path.splitext(filename_fb)[0]
-
-                            # Check likely output files
-                            if (
-                                os.path.exists(filename_fb)
-                                and os.path.getsize(filename_fb) > 0
-                            ):
-                                return filename_fb, None
-
-                            for ext in (
-                                [".mp4", ".webm", ".mkv", ".mov", ".avi"]
-                                if format_type != "audio"
-                                else [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
-                            ):
-                                test_path = f"{base_fb}{ext}"
-                                if (
-                                    os.path.exists(test_path)
-                                    and os.path.getsize(test_path) > 0
-                                ):
-                                    return test_path, None
-
-                    logger.warning(
-                        "Fallback simple download did not produce a valid file"
-                    )
-                except Exception as fb_e:
-                    logger.error(f"Fallback download attempt raised: {fb_e}")
-
-            return None, f"Download failed: {error_msg[:200]}"
+            return None, f"Download failed: {error_msg[:100]}"
         except Exception as e:
             logger.error(f"Error downloading: {e}", exc_info=True)
             return None, str(e)[:100]
