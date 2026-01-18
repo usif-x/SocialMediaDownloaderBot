@@ -43,12 +43,18 @@ class VideoDownloader:
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
-                "youtube": {"player_client": ["android", "web"]},
+                "youtube": {"player_client": ["default", "-web_safari"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
+            # External JS components for challenge solving
+            "remote_components": ["ejs:github"],
+            # Explicitly use Deno for JS challenges
+            "js": "deno",
+            # Allow unplayable formats (some YouTube videos)
+            "allow_unplayable_formats": True,
         }
 
         # Add cookie support for YouTube and other sites
@@ -485,6 +491,14 @@ class VideoDownloader:
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
+            "extractor_args": {
+                "youtube": {"player_client": ["default", "-web_safari"]},
+            },
+            "remote_components": ["ejs:github"],
+            # Explicitly use Deno for JS challenges
+            "js": "deno",
+            # Allow unplayable formats (some YouTube videos)
+            "allow_unplayable_formats": True,
         }
 
         # Add cookie support
