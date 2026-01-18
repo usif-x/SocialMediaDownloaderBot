@@ -442,6 +442,11 @@ class VideoDownloader:
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
+        
+        import shutil
+        logger.debug(f"ffmpeg available: {shutil.which('ffmpeg')}")
+        logger.debug(f"deno available: {shutil.which('deno')}")
+        
         user_path = os.path.join(self.download_path, str(user_id))
         os.makedirs(user_path, exist_ok=True)
 
@@ -499,6 +504,10 @@ class VideoDownloader:
             "js": "deno",
             # Allow unplayable formats (some YouTube videos)
             "allow_unplayable_formats": True,
+            # Keep intermediate files during merging
+            "keepvideo": True,
+            "keepaudio": True,
+            "keep": True,
         }
 
         # Add cookie support
@@ -556,6 +565,11 @@ class VideoDownloader:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+
+                # Debug: list downloaded files
+                if os.path.exists(user_path):
+                    files = os.listdir(user_path)
+                    logger.debug(f"Files in {user_path}: {files}")
 
                 if not info:
                     return None, "Failed to download"

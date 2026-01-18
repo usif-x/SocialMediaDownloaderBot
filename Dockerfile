@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Deno (JavaScript/TypeScript runtime)
 RUN curl -fsSL https://deno.land/install.sh | sh
+RUN deno --version
 
 # Set work directory
 WORKDIR /app
