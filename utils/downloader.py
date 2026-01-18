@@ -51,9 +51,8 @@ class VideoDownloader:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
             # REMOVED: These options that can cause issues
-            # "remote_components": ["ejs:github"],
-            # "js": "deno",
-            # "allow_unplayable_formats": True,
+            "remote_components": ["ejs:github"],
+            "js": "deno",
         }
 
         # Add cookie support for YouTube and other sites
@@ -492,8 +491,8 @@ class VideoDownloader:
                 "youtube": {"player_client": ["default", "-web_safari"]},
             },
             # CRITICAL FIX: Removed these options that prevent merging
-            # "remote_components": ["ejs:github"],
-            # "js": "deno",
+            "remote_components": ["ejs:github"],
+            "js": "deno",
             # "allow_unplayable_formats": True,  # THIS WAS CAUSING THE ISSUE!
             "keepvideo": False,
             "overwrites": True,
