@@ -438,7 +438,7 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
-        FIXED for file not found errors during post-processing
+        FIXED for Unicode/emoji filename issues
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
@@ -451,9 +451,9 @@ class VideoDownloader:
         user_path = os.path.join(self.download_path, str(user_id))
         os.makedirs(user_path, exist_ok=True)
 
-        # IMPORTANT: Use a simpler filename template to avoid conflicts
-        # Don't restrict filenames too much - let yt-dlp handle it
-        output_template = os.path.join(user_path, "%(title)s.%(ext)s")
+        # Use a safe, ASCII-only filename template
+        # This prevents issues with Unicode, emojis, and special characters
+        output_template = os.path.join(user_path, "%(title).200B.%(ext)s")
 
         # Detect if this is Instagram
         is_instagram = "instagram.com" in url.lower()
@@ -465,13 +465,9 @@ class VideoDownloader:
             else:
                 format_string = "bestaudio/best"
         else:
-            # CRITICAL FIX FOR INSTAGRAM: Use simpler format selection
             if is_instagram:
-                # Instagram requires special handling - just use best
-                # Don't try to merge separate streams as it causes issues
                 format_string = "best"
             elif format_id and format_id != "best":
-                # For other platforms, merge video+audio
                 format_string = f"{format_id}+bestaudio/{format_id}/best"
             elif quality and quality != "best" and quality != "Best":
                 quality_height = quality.replace("p", "")
@@ -480,7 +476,6 @@ class VideoDownloader:
                 else:
                     format_string = "bestvideo*+bestaudio/best"
             else:
-                # Default: merge video+audio, prefer formats that already have both
                 format_string = "bestvideo*+bestaudio/best"
 
         ydl_opts = {
@@ -493,8 +488,11 @@ class VideoDownloader:
             "socket_timeout": 60,
             "retries": 3,
             "fragment_retries": 3,
-            # FIX: Don't restrict filenames - this can cause mismatches
-            "restrictfilenames": False,
+            # CRITICAL FIX: Restrict filenames to ASCII-safe characters
+            # This prevents FFmpeg from failing on Unicode/emoji filenames
+            "restrictfilenames": True,
+            # Also enable windowsfilenames to be extra safe
+            "windowsfilenames": True,
             "progress_hooks": [self._progress_hook],
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -505,8 +503,7 @@ class VideoDownloader:
             "remote_components": ["ejs:github"],
             "js": "deno",
             "allow_unplayable_formats": True,
-            # FIX: Don't keep intermediate files - causes path confusion
-            # Let yt-dlp handle cleanup automatically
+            # Don't keep intermediate files
             "keepvideo": False,
         }
 
@@ -520,16 +517,12 @@ class VideoDownloader:
             ydl_opts["writethumbnail"] = True
 
             if is_instagram:
-                # INSTAGRAM SPECIFIC FIX: Use simpler post-processing
-                # Instagram videos are usually already in MP4 with audio merged
-                # Minimal processing to avoid breaking the streams
                 ydl_opts["postprocessors"] = [
                     {
                         "key": "FFmpegMetadata",
                     },
                 ]
             else:
-                # For other platforms: proper merging with FFmpegVideoRemuxer
                 ydl_opts["merge_output_format"] = "mp4"
                 ydl_opts["postprocessors"] = [
                     {
@@ -545,7 +538,6 @@ class VideoDownloader:
                     },
                 ]
         else:
-            # For audio extraction
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
@@ -569,22 +561,18 @@ class VideoDownloader:
                 if not info:
                     return None, "Failed to download"
 
-                # Get the actual downloaded filename from yt-dlp
-                # This is more reliable than trying to guess it
+                # Get the filename that yt-dlp actually used
+                # IMPORTANT: This respects restrictfilenames sanitization
                 filename = ydl.prepare_filename(info)
 
-                # Log what we got
                 logger.debug(f"Expected filename: {filename}")
-                logger.debug(
-                    f"User path contents: {os.listdir(user_path) if os.path.exists(user_path) else 'N/A'}"
-                )
 
                 # Strategy 1: Check if the expected file exists
                 if os.path.exists(filename):
-                    logger.debug(f"Found file at expected path: {filename}")
+                    logger.info(f"✓ Found file at expected path: {filename}")
                     return filename, None
 
-                # Strategy 2: Check with different extensions
+                # Strategy 2: Check base name with different extensions
                 base_name = os.path.splitext(filename)[0]
                 if format_type == "audio":
                     possible_extensions = [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
@@ -594,50 +582,45 @@ class VideoDownloader:
                 for ext in possible_extensions:
                     test_path = f"{base_name}{ext}"
                     if os.path.exists(test_path):
-                        logger.debug(f"Found file with extension {ext}: {test_path}")
+                        logger.info(f"✓ Found file with extension {ext}: {test_path}")
                         return test_path, None
 
-                # Strategy 3: Find the most recently modified file in the user directory
-                # This is the most reliable fallback
+                # Strategy 3: List all files in user directory for debugging
                 if os.path.exists(user_path):
+                    all_files = os.listdir(user_path)
+                    logger.warning(
+                        f"Expected file not found. Directory contents: {all_files}"
+                    )
+
+                    # Find most recent file matching the type
                     latest_file = None
                     latest_time = 0
                     current_time = time.time()
 
-                    for f in os.listdir(user_path):
+                    for f in all_files:
                         full_path = os.path.join(user_path, f)
                         if os.path.isfile(full_path):
-                            # Check if file has correct extension
+                            # Check extension
                             if any(
-                                full_path.endswith(ext) for ext in possible_extensions
+                                full_path.lower().endswith(ext)
+                                for ext in possible_extensions
                             ):
                                 file_time = os.path.getmtime(full_path)
-                                # Only consider files modified in the last 120 seconds
+                                # Only consider very recent files (last 2 minutes)
                                 if current_time - file_time < 120:
                                     if file_time > latest_time:
                                         latest_time = file_time
                                         latest_file = full_path
 
                     if latest_file:
-                        logger.debug(f"Found latest file: {latest_file}")
+                        logger.info(f"✓ Found latest matching file: {latest_file}")
                         return latest_file, None
 
-                # Strategy 4: Try to find any file matching the title
-                if os.path.exists(user_path):
-                    title = info.get("title", "")
-                    if title:
-                        # Clean title for comparison
-                        clean_title = title.lower().replace(" ", "")
-                        for f in os.listdir(user_path):
-                            if clean_title[:50] in f.lower().replace(" ", ""):
-                                full_path = os.path.join(user_path, f)
-                                if os.path.isfile(full_path):
-                                    logger.debug(
-                                        f"Found file by title match: {full_path}"
-                                    )
-                                    return full_path, None
-
-                logger.error(f"File not found after download. Expected: {filename}")
+                logger.error(f"✗ File not found. Expected: {filename}")
+                logger.error(f"✗ Directory: {user_path}")
+                logger.error(
+                    f"✗ Contents: {os.listdir(user_path) if os.path.exists(user_path) else 'N/A'}"
+                )
                 return None, "File not found after download"
 
         except yt_dlp.utils.DownloadError as e:
