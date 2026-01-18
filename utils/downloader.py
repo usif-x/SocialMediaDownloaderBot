@@ -45,12 +45,17 @@ class VideoDownloader:
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
-                "youtube": {"player_client": ["android", "web"]},
+                "youtube": {"player_client": ["web"], "skip": ["dash", "hls"]},
             },
             # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
+            "js": True,
+            "no_check_certificate": True,
+            "extractor_retries": 3,
+            "remote_components": ["ejs:github"],
+            "logger": logger,
         }
 
         # Add cookie support for YouTube and other sites
@@ -478,15 +483,25 @@ class VideoDownloader:
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
-            "ignoreerrors": False,
+            "ignoreerrors": True,
+            "ignore_no_formats_error": True,
             "socket_timeout": 60,
             "retries": 3,
             "fragment_retries": 3,
+            "extractor_retries": 3,
             "restrictfilenames": True,
             "progress_hooks": [self._progress_hook],
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
+            "extractor_args": {
+                "youtube": {"player_client": ["web"], "skip": ["dash", "hls"]},
+            },
+            "js": True,
+            "no_check_certificate": True,
+            "extractor_retries": 3,
+            "remote_components": ["ejs:github"],
+            "logger": logger,
         }
 
         # Add cookie support
