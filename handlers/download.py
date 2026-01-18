@@ -825,10 +825,10 @@ async def download_and_send_video(
                         await safe_edit_message(
                             download_msg,
                             f"📤 Uploading large file...\n\n"
-                            f"Progress: {progress_bar} {percentage:.1f}%\n"
-                            f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
-                            f"Speed: {speed_str}\n"
-                            f"Estimated Time: {eta_str}",
+                            f"📈 {progress_bar} {percentage:.1f}%\n"
+                            f"📤 Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
+                            f"⚡ Speed: {speed_str}\n"
+                            f"🕔 Estimated Time: {eta_str}",
                         )
                     except:
                         pass
