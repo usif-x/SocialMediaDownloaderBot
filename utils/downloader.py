@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shutil
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -39,38 +40,24 @@ class VideoDownloader:
             "extract_flat": False,
             "socket_timeout": 30,
             "skip_download": True,
-            # Important: ignore format errors during info extraction
             "ignore_no_formats_error": True,
             "youtube_include_dash_manifest": True,
             "extractor_args": {
                 "youtube": {"player_client": ["default", "-web_safari"]},
             },
-            # Add user agent to avoid bot detection
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
-            # External JS components for challenge solving
             "remote_components": ["ejs:github"],
-            # Explicitly use Deno for JS challenges
             "js": "deno",
-            # Allow unplayable formats (some YouTube videos)
             "allow_unplayable_formats": True,
         }
 
-        # Add cookie support for YouTube and other sites
+        # Add cookie support
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info(f"Using cookies file: {cookies_file}")
-            # Log cookie content for debugging
-            try:
-                with open(cookies_file, "r") as f:
-                    cookie_content = f.read()
-                    logger.info(
-                        f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------"
-                    )
-            except Exception as e:
-                logger.error(f"Failed to read cookies file for logging: {e}")
         else:
             logger.warning(f"No cookies file found at {cookies_file}")
 
@@ -83,7 +70,6 @@ class VideoDownloader:
                         logger.warning(
                             "Default extraction failed, trying iOS client fallback..."
                         )
-                        # Fallback for restricted videos (often work with iOS client)
                         ydl_opts["extractor_args"] = {
                             "youtube": {
                                 "player_client": [
@@ -101,7 +87,7 @@ class VideoDownloader:
                                 logger.error(
                                     f"iOS client fallback also failed: {fallback_e}"
                                 )
-                                raise fallback_e  # Re-raise the fallback error if it fails
+                                raise fallback_e
                     else:
                         raise e
 
@@ -116,20 +102,15 @@ class VideoDownloader:
                     info.get("acodec") != "none" and info.get("acodec") is not None
                 )
 
-                # Check if this is an image (Instagram, Twitter images, etc.)
-                # IMPORTANT: YouTube thumbnails/storyboards should NOT be classified as images
+                # Initialize variables
                 is_image = False
                 image_urls = []
-
-                # Get platform/extractor name
                 platform = info.get("extractor", "").lower()
 
                 # Only check for image formats if NOT YouTube
-                # YouTube has image formats (thumbnails/storyboards) but they're not the main content
                 if "formats" in info and info["formats"] and "youtube" not in platform:
                     for fmt in info["formats"]:
                         ext = fmt.get("ext", "").lower()
-                        # Skip storyboards and thumbnails
                         format_note = (fmt.get("format_note") or "").lower()
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
@@ -145,7 +126,7 @@ class VideoDownloader:
                                 }
                             )
 
-                # Also check direct URL for images (but not for YouTube)
+                # Check direct URL for images
                 direct_url = info.get("url", "")
                 if (
                     direct_url
@@ -166,8 +147,7 @@ class VideoDownloader:
                         }
                     )
 
-                # Check thumbnail as fallback for image posts (but NOT for YouTube)
-                # YouTube always has thumbnails, but they're not the main content
+                # Check thumbnail as fallback for image posts
                 if (
                     not has_video
                     and not has_audio
@@ -178,20 +158,12 @@ class VideoDownloader:
                     if thumb and not image_urls:
                         is_image = True
                         image_urls.append(
-                            {
-                                "url": thumb,
-                                "ext": "jpg",
-                                "width": 0,
-                                "height": 0,
-                            }
+                            {"url": thumb, "ext": "jpg", "width": 0, "height": 0}
                         )
 
-                # Extract available formats - separate video and audio
                 video_formats = []
                 audio_formats = []
                 image_formats = []
-
-                # Get duration for filesize estimation
                 video_duration = info.get("duration") or 0
 
                 if "formats" in info and info["formats"]:
@@ -202,13 +174,11 @@ class VideoDownloader:
                         fmt_vcodec = fmt.get("vcodec", "none")
                         fmt_acodec = fmt.get("acodec", "none")
                         protocol = fmt.get("protocol", "")
-
-                        # Special handling for storyboard and thumbnails
                         format_note = (fmt.get("format_note") or "").lower()
+
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
 
-                        # Determine resolution
                         height = fmt.get("height") or 0
                         width = fmt.get("width") or 0
 
@@ -219,7 +189,6 @@ class VideoDownloader:
                             and fmt.get("resolution") != "audio only"
                         ):
                             resolution = fmt.get("resolution")
-                            # Try to parse height from resolution string (e.g. "1280x720")
                             try:
                                 if "x" in resolution:
                                     height = int(resolution.split("x")[1])
@@ -229,15 +198,12 @@ class VideoDownloader:
                             resolution = "Audio Only"
                             height = 0
 
-                        # Format entry for selection
                         filesize = fmt.get("filesize") or fmt.get("filesize_approx")
                         if (
                             not filesize
                             and video_duration > 0
                             and (fmt.get("tbr") or fmt.get("vbr"))
                         ):
-                            # Estimate filesize from bitrate
-                            # filesize = (bitrate in bits/sec * duration) / 8
                             tbr = fmt.get("tbr") or fmt.get("vbr")
                             if tbr:
                                 filesize = int((tbr * 1024 * video_duration) / 8)
@@ -253,16 +219,13 @@ class VideoDownloader:
                             "height": height,
                         }
 
-                        # Check for video formats (including Apple HLS/m3u8)
                         is_video = fmt_vcodec and fmt_vcodec != "none"
 
-                        # Add all video formats with valid height
                         if (
                             is_video
                             and height > 0
                             and height not in seen_video_qualities
                         ):
-                            # Add quality label based on height
                             if height >= 2160:
                                 quality_label = "4K (2160p)"
                             elif height >= 1440:
@@ -284,12 +247,9 @@ class VideoDownloader:
                             video_formats.append(format_entry)
                             seen_video_qualities.add(height)
 
-                        # Check for audio formats
                         elif fmt_acodec and fmt_acodec != "none":
-                            # Use bitrate as quality identifier
                             abr = fmt.get("abr", 0) or 0
                             if abr > 0 and abr not in seen_audio_qualities:
-                                # Add quality label based on bitrate
                                 if abr >= 256:
                                     quality_label = f"High ({int(abr)}kbps)"
                                 elif abr >= 192:
@@ -302,14 +262,11 @@ class VideoDownloader:
                                 audio_formats.append(format_entry)
                                 seen_audio_qualities.add(abr)
 
-                # Sort formats: higher resolution/bitrate first
                 video_formats.sort(key=lambda x: x.get("height", 0), reverse=True)
                 audio_formats.sort(
                     key=lambda x: x.get("filesize", 0) or 0, reverse=True
                 )
 
-                # Always provide options even if no specific formats found
-                # This handles single-format videos (like Instagram)
                 if not video_formats and has_video:
                     video_formats.append(
                         {
@@ -321,7 +278,6 @@ class VideoDownloader:
                         }
                     )
 
-                # Always allow audio extraction if content has audio
                 if not audio_formats and has_audio:
                     audio_formats.append(
                         {
@@ -332,11 +288,8 @@ class VideoDownloader:
                         }
                     )
 
-                # If still no formats, check if there's a direct URL or formats exist
-                # This is a fallback for platforms like Instagram
                 if not video_formats and not audio_formats and not is_image:
                     if info.get("url") or info.get("formats"):
-                        # Add fallback formats based on what content exists
                         if has_video:
                             video_formats.append(
                                 {
@@ -357,7 +310,6 @@ class VideoDownloader:
                                 }
                             )
 
-                # Extra fallback: if nothing detected but we have thumbnail AND not YouTube, treat as image
                 if (
                     not video_formats
                     and not audio_formats
@@ -382,25 +334,19 @@ class VideoDownloader:
                             }
                         )
 
-                # Build image formats list
                 if image_urls:
-                    # Sort by resolution (highest first)
                     image_urls.sort(
                         key=lambda x: (x.get("width", 0) * x.get("height", 0)),
                         reverse=True,
                     )
-                    for img in image_urls[:5]:  # Limit to top 5
+                    for img in image_urls[:5]:
                         width = img.get("width", 0)
                         height = img.get("height", 0)
                         quality = (
                             f"{width}x{height}" if width and height else "Original"
                         )
                         image_formats.append(
-                            {
-                                "url": img["url"],
-                                "quality": quality,
-                                "ext": img["ext"],
-                            }
+                            {"url": img["url"], "quality": quality, "ext": img["ext"]}
                         )
 
                 return {
@@ -438,12 +384,9 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
-        FIXED: Prevent file deletion during post-processing
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
-
-        import shutil
 
         logger.debug(f"ffmpeg available: {shutil.which('ffmpeg')}")
         logger.debug(f"deno available: {shutil.which('deno')}")
@@ -451,15 +394,14 @@ class VideoDownloader:
         user_path = os.path.join(self.download_path, str(user_id))
         os.makedirs(user_path, exist_ok=True)
 
-        # CRITICAL FIX: Use absolute path to prevent path resolution issues
-        # yt-dlp sometimes strips leading ./ which causes FFmpeg to look in wrong directory
+        # Use absolute path
         user_path_abs = os.path.abspath(user_path)
         output_template = os.path.join(user_path_abs, "%(title).200B.%(ext)s")
 
         # Detect if this is Instagram
         is_instagram = "instagram.com" in url.lower()
 
-        # Configure format string based on type and quality selection
+        # Configure format string
         if format_type == "audio":
             if format_id and format_id != "best" and format_id != "bestaudio":
                 format_string = f"{format_id}/bestaudio/best"
@@ -501,9 +443,8 @@ class VideoDownloader:
             "remote_components": ["ejs:github"],
             "js": "deno",
             "allow_unplayable_formats": True,
-            # CRITICAL FIX: Keep video files during merge to prevent deletion
-            # This prevents FFmpeg from trying to access deleted intermediate files
-            "keepvideo": True,
+            # FIX 1: Remove "keepvideo" to avoid confusion during merge process
+            # "keepvideo": True,
         }
 
         # Add cookie support
@@ -512,22 +453,18 @@ class VideoDownloader:
             ydl_opts["cookiefile"] = cookies_file
 
         # Configure postprocessors based on platform and format type
-        # CRITICAL FIX: Minimal post-processing to avoid file deletion race conditions
         if format_type == "video":
             if is_instagram:
-                # Instagram: No post-processing at all - videos are already in good format
+                # Instagram: No post-processing
                 pass
             else:
-                # Other platforms: Only add metadata, NO conversion to avoid file issues
-                # The merge_output_format handles format conversion during download
+                # Other platforms: Merge to mp4
                 ydl_opts["merge_output_format"] = "mp4"
-                ydl_opts["postprocessors"] = [
-                    {
-                        "key": "FFmpegMetadata",
-                    },
-                ]
+                # FIX 2: Use native writemetadata option instead of explicit FFmpegMetadata postprocessor
+                # This prevents path resolution errors during merging
+                ydl_opts["writemetadata"] = True
         else:
-            # Audio extraction - keep this as is since it works
+            # Audio extraction
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
@@ -545,7 +482,18 @@ class VideoDownloader:
             logger.info(f"Output template: {output_template}")
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                # FIX 3: Catch FileNotFound specifically if internal ffmpeg handling fails
+                try:
+                    info = ydl.extract_info(url, download=True)
+                except FileNotFoundError as fnf:
+                    # If this happens, it might mean merge succeeded but metadata step failed looking for temp file
+                    # We will try to find the resulting file anyway below
+                    logger.warning(
+                        f"FileNotFound during process (likely metadata step): {fnf}"
+                    )
+                    info = ydl.extract_info(
+                        url, download=False
+                    )  # Get info again to guess filename
 
                 if not info:
                     return None, "Failed to download"
@@ -609,11 +557,6 @@ class VideoDownloader:
 
                 # If we get here, something went wrong
                 logger.error(f"✗ File not found after download")
-                logger.error(f"  Expected: {filename}")
-                logger.error(f"  Directory: {user_path_abs}")
-                logger.error(
-                    f"  Contents: {all_files if 'all_files' in locals() else 'N/A'}"
-                )
                 return None, "File not found after download"
 
         except yt_dlp.utils.DownloadError as e:
@@ -630,17 +573,7 @@ class VideoDownloader:
         user_id: int = 0,
         filename: str = "image",
     ) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Download image from URL
-
-        Args:
-            image_url: Direct image URL
-            user_id: User ID for organizing downloads
-            filename: Base filename for the image
-
-        Returns:
-            Tuple of (file_path, error_message)
-        """
+        """Download image from URL"""
         import urllib.error
         import urllib.request
 
@@ -648,18 +581,15 @@ class VideoDownloader:
         os.makedirs(user_path, exist_ok=True)
 
         try:
-            # Get file extension from URL
             ext = image_url.split(".")[-1].lower().split("?")[0]
             if ext not in ["jpg", "jpeg", "png", "webp", "gif"]:
                 ext = "jpg"
 
-            # Clean filename
             clean_filename = "".join(
                 c if c.isalnum() or c in "._- " else "_" for c in filename[:100]
             )
             file_path = os.path.join(user_path, f"{clean_filename}.{ext}")
 
-            # Download image
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
@@ -674,9 +604,6 @@ class VideoDownloader:
             else:
                 return None, "Failed to save image"
 
-        except urllib.error.URLError as e:
-            logger.error(f"Image download URL error: {e}")
-            return None, f"Failed to download image: {str(e)[:50]}"
         except Exception as e:
             logger.error(f"Image download error: {e}", exc_info=True)
             return None, str(e)[:100]
@@ -686,7 +613,6 @@ class VideoDownloader:
         if not self._progress_callback:
             return
 
-        # Throttle updates to avoid spam (max once per second)
         current_time = time.time()
         if (
             current_time - self._last_progress_update < 1.0
@@ -697,44 +623,31 @@ class VideoDownloader:
 
         try:
             if d["status"] == "downloading":
-                # Calculate percentage
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 downloaded = d.get("downloaded_bytes", 0)
+                percentage = (downloaded / total) * 100 if total > 0 else 0
 
-                if total > 0:
-                    percentage = (downloaded / total) * 100
-                else:
-                    percentage = 0
-
-                # Get speed and ETA
                 speed = d.get("speed", 0) or 0
                 eta = d.get("eta", 0) or 0
 
-                # Format speed
-                if speed > 0:
-                    if speed >= 1024 * 1024:
-                        speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
-                    else:
-                        speed_str = f"{speed / 1024:.1f} KB/s"
+                if speed >= 1024 * 1024:
+                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
+                elif speed > 0:
+                    speed_str = f"{speed / 1024:.1f} KB/s"
                 else:
                     speed_str = "-- KB/s"
 
-                # Format ETA
-                if eta > 0:
-                    eta = int(eta)  # Convert to integer to avoid decimals
-                    if eta >= 3600:
-                        eta_str = f"{eta // 3600}h {(eta % 3600) // 60}m"
-                    elif eta >= 60:
-                        eta_str = f"{eta // 60}m {eta % 60}s"
-                    else:
-                        eta_str = f"{eta}s"
+                if eta > 3600:
+                    eta_str = f"{int(eta) // 3600}h {(int(eta) % 3600) // 60}m"
+                elif eta >= 60:
+                    eta_str = f"{int(eta) // 60}m {int(eta) % 60}s"
+                elif eta > 0:
+                    eta_str = f"{int(eta)}s"
                 else:
                     eta_str = "--"
 
-                # Create progress bar
                 bar = create_progress_bar(percentage)
 
-                # Format downloaded size
                 if downloaded >= 1024 * 1024:
                     downloaded_str = f"{downloaded / (1024 * 1024):.1f} MB"
                 else:
@@ -747,7 +660,6 @@ class VideoDownloader:
                     f"⚡ {speed_str}\n"
                     f"🕔 ETA: {eta_str}"
                 )
-
                 self._progress_callback(percentage, status_text)
 
             elif d["status"] == "finished":
@@ -770,5 +682,4 @@ class VideoDownloader:
 
     @staticmethod
     def get_supported_sites() -> List[str]:
-        """Get list of supported sites"""
         return settings.SUPPORTED_SITES
