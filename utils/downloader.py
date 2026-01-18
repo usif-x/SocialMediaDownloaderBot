@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import shutil
+import subprocess
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -53,11 +54,20 @@ class VideoDownloader:
             "allow_unplayable_formats": True,
         }
 
-        # Add cookie support
+        # Add cookie support for YouTube and other sites
         cookies_file = os.path.join(os.path.dirname(self.download_path), "cookies.txt")
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
             logger.info(f"Using cookies file: {cookies_file}")
+            # Log cookie content for debugging
+            try:
+                with open(cookies_file, "r") as f:
+                    cookie_content = f.read()
+                    logger.info(
+                        f"--- DOWNLOADER COOKIES ({len(cookie_content)} chars) ---\n{cookie_content}\n-----------------------------------"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to read cookies file for logging: {e}")
         else:
             logger.warning(f"No cookies file found at {cookies_file}")
 
@@ -70,6 +80,7 @@ class VideoDownloader:
                         logger.warning(
                             "Default extraction failed, trying iOS client fallback..."
                         )
+                        # Fallback for restricted videos (often work with iOS client)
                         ydl_opts["extractor_args"] = {
                             "youtube": {
                                 "player_client": [
@@ -87,7 +98,7 @@ class VideoDownloader:
                                 logger.error(
                                     f"iOS client fallback also failed: {fallback_e}"
                                 )
-                                raise fallback_e
+                                raise fallback_e  # Re-raise the fallback error if it fails
                     else:
                         raise e
 
@@ -102,15 +113,20 @@ class VideoDownloader:
                     info.get("acodec") != "none" and info.get("acodec") is not None
                 )
 
-                # Initialize variables
+                # Check if this is an image (Instagram, Twitter images, etc.)
+                # IMPORTANT: YouTube thumbnails/storyboards should NOT be classified as images
                 is_image = False
                 image_urls = []
+
+                # Get platform/extractor name
                 platform = info.get("extractor", "").lower()
 
                 # Only check for image formats if NOT YouTube
+                # YouTube has image formats (thumbnails/storyboards) but they're not the main content
                 if "formats" in info and info["formats"] and "youtube" not in platform:
                     for fmt in info["formats"]:
                         ext = fmt.get("ext", "").lower()
+                        # Skip storyboards and thumbnails
                         format_note = (fmt.get("format_note") or "").lower()
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
@@ -126,7 +142,7 @@ class VideoDownloader:
                                 }
                             )
 
-                # Check direct URL for images
+                # Also check direct URL for images (but not for YouTube)
                 direct_url = info.get("url", "")
                 if (
                     direct_url
@@ -147,7 +163,8 @@ class VideoDownloader:
                         }
                     )
 
-                # Check thumbnail as fallback for image posts
+                # Check thumbnail as fallback for image posts (but NOT for YouTube)
+                # YouTube always has thumbnails, but they're not the main content
                 if (
                     not has_video
                     and not has_audio
@@ -158,12 +175,20 @@ class VideoDownloader:
                     if thumb and not image_urls:
                         is_image = True
                         image_urls.append(
-                            {"url": thumb, "ext": "jpg", "width": 0, "height": 0}
+                            {
+                                "url": thumb,
+                                "ext": "jpg",
+                                "width": 0,
+                                "height": 0,
+                            }
                         )
 
+                # Extract available formats - separate video and audio
                 video_formats = []
                 audio_formats = []
                 image_formats = []
+
+                # Get duration for filesize estimation
                 video_duration = info.get("duration") or 0
 
                 if "formats" in info and info["formats"]:
@@ -174,11 +199,13 @@ class VideoDownloader:
                         fmt_vcodec = fmt.get("vcodec", "none")
                         fmt_acodec = fmt.get("acodec", "none")
                         protocol = fmt.get("protocol", "")
-                        format_note = (fmt.get("format_note") or "").lower()
 
+                        # Special handling for storyboard and thumbnails
+                        format_note = (fmt.get("format_note") or "").lower()
                         if "storyboard" in format_note or "thumbnail" in format_note:
                             continue
 
+                        # Determine resolution
                         height = fmt.get("height") or 0
                         width = fmt.get("width") or 0
 
@@ -189,6 +216,7 @@ class VideoDownloader:
                             and fmt.get("resolution") != "audio only"
                         ):
                             resolution = fmt.get("resolution")
+                            # Try to parse height from resolution string (e.g. "1280x720")
                             try:
                                 if "x" in resolution:
                                     height = int(resolution.split("x")[1])
@@ -198,12 +226,15 @@ class VideoDownloader:
                             resolution = "Audio Only"
                             height = 0
 
+                        # Format entry for selection
                         filesize = fmt.get("filesize") or fmt.get("filesize_approx")
                         if (
                             not filesize
                             and video_duration > 0
                             and (fmt.get("tbr") or fmt.get("vbr"))
                         ):
+                            # Estimate filesize from bitrate
+                            # filesize = (bitrate in bits/sec * duration) / 8
                             tbr = fmt.get("tbr") or fmt.get("vbr")
                             if tbr:
                                 filesize = int((tbr * 1024 * video_duration) / 8)
@@ -219,13 +250,16 @@ class VideoDownloader:
                             "height": height,
                         }
 
+                        # Check for video formats (including Apple HLS/m3u8)
                         is_video = fmt_vcodec and fmt_vcodec != "none"
 
+                        # Add all video formats with valid height
                         if (
                             is_video
                             and height > 0
                             and height not in seen_video_qualities
                         ):
+                            # Add quality label based on height
                             if height >= 2160:
                                 quality_label = "4K (2160p)"
                             elif height >= 1440:
@@ -247,9 +281,12 @@ class VideoDownloader:
                             video_formats.append(format_entry)
                             seen_video_qualities.add(height)
 
+                        # Check for audio formats
                         elif fmt_acodec and fmt_acodec != "none":
+                            # Use bitrate as quality identifier
                             abr = fmt.get("abr", 0) or 0
                             if abr > 0 and abr not in seen_audio_qualities:
+                                # Add quality label based on bitrate
                                 if abr >= 256:
                                     quality_label = f"High ({int(abr)}kbps)"
                                 elif abr >= 192:
@@ -262,11 +299,14 @@ class VideoDownloader:
                                 audio_formats.append(format_entry)
                                 seen_audio_qualities.add(abr)
 
+                # Sort formats: higher resolution/bitrate first
                 video_formats.sort(key=lambda x: x.get("height", 0), reverse=True)
                 audio_formats.sort(
                     key=lambda x: x.get("filesize", 0) or 0, reverse=True
                 )
 
+                # Always provide options even if no specific formats found
+                # This handles single-format videos (like Instagram)
                 if not video_formats and has_video:
                     video_formats.append(
                         {
@@ -278,6 +318,7 @@ class VideoDownloader:
                         }
                     )
 
+                # Always allow audio extraction if content has audio
                 if not audio_formats and has_audio:
                     audio_formats.append(
                         {
@@ -288,8 +329,11 @@ class VideoDownloader:
                         }
                     )
 
+                # If still no formats, check if there's a direct URL or formats exist
+                # This is a fallback for platforms like Instagram
                 if not video_formats and not audio_formats and not is_image:
                     if info.get("url") or info.get("formats"):
+                        # Add fallback formats based on what content exists
                         if has_video:
                             video_formats.append(
                                 {
@@ -310,6 +354,7 @@ class VideoDownloader:
                                 }
                             )
 
+                # Extra fallback: if nothing detected but we have thumbnail AND not YouTube, treat as image
                 if (
                     not video_formats
                     and not audio_formats
@@ -334,19 +379,25 @@ class VideoDownloader:
                             }
                         )
 
+                # Build image formats list
                 if image_urls:
+                    # Sort by resolution (highest first)
                     image_urls.sort(
                         key=lambda x: (x.get("width", 0) * x.get("height", 0)),
                         reverse=True,
                     )
-                    for img in image_urls[:5]:
+                    for img in image_urls[:5]:  # Limit to top 5
                         width = img.get("width", 0)
                         height = img.get("height", 0)
                         quality = (
                             f"{width}x{height}" if width and height else "Original"
                         )
                         image_formats.append(
-                            {"url": img["url"], "quality": quality, "ext": img["ext"]}
+                            {
+                                "url": img["url"],
+                                "quality": quality,
+                                "ext": img["ext"],
+                            }
                         )
 
                 return {
@@ -384,42 +435,43 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
+        FIXED for Instagram frozen video issue
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
-
-        logger.debug(f"ffmpeg available: {shutil.which('ffmpeg')}")
-        logger.debug(f"deno available: {shutil.which('deno')}")
-
         user_path = os.path.join(self.download_path, str(user_id))
         os.makedirs(user_path, exist_ok=True)
 
-        # Use absolute path
-        user_path_abs = os.path.abspath(user_path)
-        output_template = os.path.join(user_path_abs, "%(title).200B.%(ext)s")
+        # Clean filename template
+        output_template = os.path.join(user_path, "%(title).100s.%(ext)s")
 
         # Detect if this is Instagram
         is_instagram = "instagram.com" in url.lower()
 
-        # Configure format string
+        # Configure format string based on type and quality selection
         if format_type == "audio":
             if format_id and format_id != "best" and format_id != "bestaudio":
                 format_string = f"{format_id}/bestaudio/best"
             else:
                 format_string = "bestaudio/best"
         else:
+            # CRITICAL FIX FOR INSTAGRAM: Use simpler format selection
             if is_instagram:
+                # Instagram requires special handling - just use best
+                # Don't try to merge separate streams as it causes issues
                 format_string = "best"
             elif format_id and format_id != "best":
+                # For other platforms, merge video+audio
                 format_string = f"{format_id}+bestaudio/{format_id}/best"
             elif quality and quality != "best" and quality != "Best":
                 quality_height = quality.replace("p", "")
                 if quality_height.isdigit():
-                    format_string = f"bestvideo*[height<={quality_height}]+bestaudio/best[height<={quality_height}]/best"
+                    format_string = f"bestvideo[height<={quality_height}]+bestaudio/best[height<={quality_height}]/best"
                 else:
-                    format_string = "bestvideo*+bestaudio/best"
+                    format_string = "bestvideo+bestaudio/best"
             else:
-                format_string = "bestvideo*+bestaudio/best"
+                # Default: merge video+audio
+                format_string = "bestvideo+bestaudio/best"
 
         ydl_opts = {
             "format": format_string,
@@ -443,8 +495,6 @@ class VideoDownloader:
             "remote_components": ["ejs:github"],
             "js": "deno",
             "allow_unplayable_formats": True,
-            # FIX 1: Remove "keepvideo" to avoid confusion during merge process
-            # "keepvideo": True,
         }
 
         # Add cookie support
@@ -452,19 +502,37 @@ class VideoDownloader:
         if os.path.exists(cookies_file):
             ydl_opts["cookiefile"] = cookies_file
 
-        # Configure postprocessors based on platform and format type
+        # Configure postprocessors based on platform
         if format_type == "video":
+            ydl_opts["writethumbnail"] = True
+
             if is_instagram:
-                # Instagram: No post-processing
-                pass
+                # INSTAGRAM SPECIFIC FIX: Use simpler post-processing
+                # Instagram videos are usually already in MP4 with audio merged
+                # Minimal processing to avoid breaking the streams
+                ydl_opts["postprocessors"] = [
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                ]
             else:
-                # Other platforms: Merge to mp4
+                # For other platforms: proper merging with FFmpegVideoRemuxer
                 ydl_opts["merge_output_format"] = "mp4"
-                # FIX 2: Use native writemetadata option instead of explicit FFmpegMetadata postprocessor
-                # This prevents path resolution errors during merging
-                ydl_opts["writemetadata"] = True
+                ydl_opts["postprocessors"] = [
+                    {
+                        "key": "FFmpegVideoRemuxer",
+                        "preferedformat": "mp4",
+                    },
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                    {
+                        "key": "EmbedThumbnail",
+                        "already_have_thumbnail": False,
+                    },
+                ]
         else:
-            # Audio extraction
+            # For audio extraction
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
@@ -473,96 +541,206 @@ class VideoDownloader:
                     "preferredquality": "192",
                 },
                 {
+                    "key": "EmbedThumbnail",
+                    "already_have_thumbnail": False,
+                },
+                {
                     "key": "FFmpegMetadata",
                 },
             ]
 
+        # Log ffmpeg/ffprobe availability for debugging merge/postprocess failures
         try:
-            logger.info(f"Starting download with format: {format_string}")
-            logger.info(f"Output template: {output_template}")
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # FIX 3: Catch FileNotFound specifically if internal ffmpeg handling fails
+            ffmpeg_path = shutil.which("ffmpeg")
+            ffprobe_path = shutil.which("ffprobe")
+            if ffmpeg_path:
                 try:
-                    info = ydl.extract_info(url, download=True)
-                except FileNotFoundError as fnf:
-                    # If this happens, it might mean merge succeeded but metadata step failed looking for temp file
-                    # We will try to find the resulting file anyway below
-                    logger.warning(
-                        f"FileNotFound during process (likely metadata step): {fnf}"
+                    out = subprocess.check_output(
+                        [ffmpeg_path, "-version"], stderr=subprocess.STDOUT
                     )
-                    info = ydl.extract_info(
-                        url, download=False
-                    )  # Get info again to guess filename
+                    logger.info(f"ffmpeg found: {out.decode().splitlines()[0]}")
+                except Exception as e:
+                    logger.warning(f"ffmpeg found but failed to run - {e}")
+            else:
+                logger.warning(
+                    "ffmpeg not found in PATH. Postprocessing/merging may fail."
+                )
+
+            if not ffprobe_path:
+                logger.warning(
+                    "ffprobe not found in PATH. Some extractors may have limited info."
+                )
+        except Exception:
+            pass
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
 
                 if not info:
                     return None, "Failed to download"
 
-                # Get the filename that yt-dlp prepared
                 filename = ydl.prepare_filename(info)
-                logger.info(f"yt-dlp prepared filename: {filename}")
-
-                # List all files in the directory for debugging
-                if os.path.exists(user_path_abs):
-                    all_files = os.listdir(user_path_abs)
-                    logger.info(f"Files in download directory: {all_files}")
-
-                # Strategy 1: Check if the expected file exists
-                if os.path.exists(filename):
-                    logger.info(f"✓ Found file at expected path: {filename}")
-                    return filename, None
-
-                # Strategy 2: Check base name with different extensions
                 base_name = os.path.splitext(filename)[0]
+
+                # Handle different output extensions
                 if format_type == "audio":
                     possible_extensions = [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
                 else:
                     possible_extensions = [".mp4", ".webm", ".mkv", ".mov", ".avi"]
 
-                logger.info(f"Checking base name: {base_name}")
-                for ext in possible_extensions:
-                    test_path = f"{base_name}{ext}"
-                    logger.debug(f"  Trying: {test_path}")
-                    if os.path.exists(test_path):
-                        logger.info(f"✓ Found file with extension {ext}: {test_path}")
-                        return test_path, None
+                def _is_valid_file(path: str) -> bool:
+                    try:
+                        return os.path.exists(path) and os.path.getsize(path) > 0
+                    except Exception:
+                        return False
 
-                # Strategy 3: Find most recent file with correct extension
-                if os.path.exists(user_path_abs):
-                    latest_file = None
-                    latest_time = 0
-                    current_time = time.time()
+                # Helper to search candidate files
+                def _find_candidate_file() -> Optional[str]:
+                    # Try original filename first
+                    if _is_valid_file(filename):
+                        return filename
 
-                    for f in all_files:
-                        full_path = os.path.join(user_path_abs, f)
-                        if os.path.isfile(full_path):
-                            # Check extension
-                            if any(
-                                full_path.lower().endswith(ext)
-                                for ext in possible_extensions
-                            ):
-                                file_time = os.path.getmtime(full_path)
-                                # Only consider very recent files (last 2 minutes)
-                                if current_time - file_time < 120:
-                                    logger.debug(
-                                        f"  Candidate: {f} (age: {current_time - file_time:.1f}s)"
-                                    )
-                                    if file_time > latest_time:
-                                        latest_time = file_time
-                                        latest_file = full_path
+                    # Try with different extensions
+                    for ext in possible_extensions:
+                        test_path = f"{base_name}{ext}"
+                        if _is_valid_file(test_path):
+                            return test_path
 
-                    if latest_file:
-                        logger.info(f"✓ Found latest matching file: {latest_file}")
-                        return latest_file, None
+                    # Find latest file in directory
+                    if os.path.exists(user_path):
+                        latest_file = None
+                        latest_time = 0
+                        for f in os.listdir(user_path):
+                            full_path = os.path.join(user_path, f)
+                            if os.path.isfile(full_path):
+                                if any(
+                                    full_path.endswith(ext)
+                                    for ext in possible_extensions
+                                ):
+                                    file_time = os.path.getmtime(full_path)
+                                    # Only consider files modified in the last 60 seconds
+                                    if time.time() - file_time < 60:
+                                        if file_time > latest_time:
+                                            latest_time = file_time
+                                            latest_file = full_path
 
-                # If we get here, something went wrong
-                logger.error(f"✗ File not found after download")
-                return None, "File not found after download"
+                        if latest_file and _is_valid_file(latest_file):
+                            return latest_file
+
+                    return None
+
+                candidate = _find_candidate_file()
+
+                # If the candidate is missing or zero-length, attempt a simplified fallback
+                if not candidate:
+                    logger.warning(
+                        "Downloaded file not found or empty, attempting simplified fallback download"
+                    )
+
+                    # Fallback: try again with a simpler format and minimal postprocessors
+                    try:
+                        fallback_opts = ydl_opts.copy()
+                        fallback_opts["format"] = "best"
+                        # Avoid complex merging/postprocessing which can produce empty files if ffmpeg errors
+                        fallback_opts.pop("merge_output_format", None)
+                        fallback_opts.pop("postprocessors", None)
+                        fallback_opts["noprogress"] = True
+
+                        with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                            info_fb = ydl_fb.extract_info(url, download=True)
+                            if info_fb:
+                                filename_fb = ydl_fb.prepare_filename(info_fb)
+                                base_fb = os.path.splitext(filename_fb)[0]
+
+                                # check same set of candidate locations
+                                for ext in possible_extensions:
+                                    test_path = f"{base_fb}{ext}"
+                                    if _is_valid_file(test_path):
+                                        return test_path, None
+
+                                if _is_valid_file(filename_fb):
+                                    return filename_fb, None
+
+                                # last resort: scan user path again
+                                if os.path.exists(user_path):
+                                    latest_file = None
+                                    latest_time = 0
+                                    for f in os.listdir(user_path):
+                                        full_path = os.path.join(user_path, f)
+                                        if os.path.isfile(full_path) and any(
+                                            full_path.endswith(ext)
+                                            for ext in possible_extensions
+                                        ):
+                                            file_time = os.path.getmtime(full_path)
+                                            if (
+                                                time.time() - file_time < 60
+                                                and file_time > latest_time
+                                            ):
+                                                latest_time = file_time
+                                                latest_file = full_path
+                                    if latest_file and _is_valid_file(latest_file):
+                                        return latest_file, None
+                    except Exception as e:
+                        logger.warning(f"Fallback download attempt failed: {e}")
+
+                    return None, "Downloaded file is empty or not found"
+
+                return candidate, None
 
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
             logger.error(f"Download error: {error_msg}")
-            return None, f"Download failed: {error_msg[:100]}"
+
+            # Specific handling for empty downloaded file: try a safer fallback
+            if (
+                "downloaded file is empty" in error_msg.lower()
+                or "the downloaded file is empty" in error_msg.lower()
+            ):
+                logger.warning(
+                    "Detected empty downloaded file from yt-dlp. Attempting fallback simple download..."
+                )
+                try:
+                    fallback_opts = ydl_opts.copy()
+                    fallback_opts["format"] = "best"
+                    fallback_opts.pop("merge_output_format", None)
+                    fallback_opts.pop("postprocessors", None)
+                    fallback_opts["noprogress"] = True
+                    # Attach our logger so we capture yt-dlp debug if needed
+                    fallback_opts["logger"] = logger
+
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                        info_fb = ydl_fb.extract_info(url, download=True)
+                        if info_fb:
+                            filename_fb = ydl_fb.prepare_filename(info_fb)
+                            base_fb = os.path.splitext(filename_fb)[0]
+
+                            # Check likely output files
+                            if (
+                                os.path.exists(filename_fb)
+                                and os.path.getsize(filename_fb) > 0
+                            ):
+                                return filename_fb, None
+
+                            for ext in (
+                                [".mp4", ".webm", ".mkv", ".mov", ".avi"]
+                                if format_type != "audio"
+                                else [".m4a", ".mp3", ".opus", ".webm", ".ogg"]
+                            ):
+                                test_path = f"{base_fb}{ext}"
+                                if (
+                                    os.path.exists(test_path)
+                                    and os.path.getsize(test_path) > 0
+                                ):
+                                    return test_path, None
+
+                    logger.warning(
+                        "Fallback simple download did not produce a valid file"
+                    )
+                except Exception as fb_e:
+                    logger.error(f"Fallback download attempt raised: {fb_e}")
+
+            return None, f"Download failed: {error_msg[:200]}"
         except Exception as e:
             logger.error(f"Error downloading: {e}", exc_info=True)
             return None, str(e)[:100]
@@ -573,7 +751,17 @@ class VideoDownloader:
         user_id: int = 0,
         filename: str = "image",
     ) -> Tuple[Optional[str], Optional[str]]:
-        """Download image from URL"""
+        """
+        Download image from URL
+
+        Args:
+            image_url: Direct image URL
+            user_id: User ID for organizing downloads
+            filename: Base filename for the image
+
+        Returns:
+            Tuple of (file_path, error_message)
+        """
         import urllib.error
         import urllib.request
 
@@ -581,15 +769,18 @@ class VideoDownloader:
         os.makedirs(user_path, exist_ok=True)
 
         try:
+            # Get file extension from URL
             ext = image_url.split(".")[-1].lower().split("?")[0]
             if ext not in ["jpg", "jpeg", "png", "webp", "gif"]:
                 ext = "jpg"
 
+            # Clean filename
             clean_filename = "".join(
                 c if c.isalnum() or c in "._- " else "_" for c in filename[:100]
             )
             file_path = os.path.join(user_path, f"{clean_filename}.{ext}")
 
+            # Download image
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
@@ -604,6 +795,9 @@ class VideoDownloader:
             else:
                 return None, "Failed to save image"
 
+        except urllib.error.URLError as e:
+            logger.error(f"Image download URL error: {e}")
+            return None, f"Failed to download image: {str(e)[:50]}"
         except Exception as e:
             logger.error(f"Image download error: {e}", exc_info=True)
             return None, str(e)[:100]
@@ -613,6 +807,7 @@ class VideoDownloader:
         if not self._progress_callback:
             return
 
+        # Throttle updates to avoid spam (max once per second)
         current_time = time.time()
         if (
             current_time - self._last_progress_update < 1.0
@@ -623,31 +818,44 @@ class VideoDownloader:
 
         try:
             if d["status"] == "downloading":
+                # Calculate percentage
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 downloaded = d.get("downloaded_bytes", 0)
-                percentage = (downloaded / total) * 100 if total > 0 else 0
 
+                if total > 0:
+                    percentage = (downloaded / total) * 100
+                else:
+                    percentage = 0
+
+                # Get speed and ETA
                 speed = d.get("speed", 0) or 0
                 eta = d.get("eta", 0) or 0
 
-                if speed >= 1024 * 1024:
-                    speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
-                elif speed > 0:
-                    speed_str = f"{speed / 1024:.1f} KB/s"
+                # Format speed
+                if speed > 0:
+                    if speed >= 1024 * 1024:
+                        speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
+                    else:
+                        speed_str = f"{speed / 1024:.1f} KB/s"
                 else:
                     speed_str = "-- KB/s"
 
-                if eta > 3600:
-                    eta_str = f"{int(eta) // 3600}h {(int(eta) % 3600) // 60}m"
-                elif eta >= 60:
-                    eta_str = f"{int(eta) // 60}m {int(eta) % 60}s"
-                elif eta > 0:
-                    eta_str = f"{int(eta)}s"
+                # Format ETA
+                if eta > 0:
+                    eta = int(eta)  # Convert to integer to avoid decimals
+                    if eta >= 3600:
+                        eta_str = f"{eta // 3600}h {(eta % 3600) // 60}m"
+                    elif eta >= 60:
+                        eta_str = f"{eta // 60}m {eta % 60}s"
+                    else:
+                        eta_str = f"{eta}s"
                 else:
                     eta_str = "--"
 
+                # Create progress bar
                 bar = create_progress_bar(percentage)
 
+                # Format downloaded size
                 if downloaded >= 1024 * 1024:
                     downloaded_str = f"{downloaded / (1024 * 1024):.1f} MB"
                 else:
@@ -660,6 +868,7 @@ class VideoDownloader:
                     f"⚡ {speed_str}\n"
                     f"🕔 ETA: {eta_str}"
                 )
+
                 self._progress_callback(percentage, status_text)
 
             elif d["status"] == "finished":
@@ -682,4 +891,5 @@ class VideoDownloader:
 
     @staticmethod
     def get_supported_sites() -> List[str]:
+        """Get list of supported sites"""
         return settings.SUPPORTED_SITES
