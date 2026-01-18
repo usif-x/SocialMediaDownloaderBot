@@ -15,7 +15,7 @@ def create_progress_bar(percentage: float, length: int = 10) -> str:
     """Create a text progress bar"""
     filled = int(length * percentage / 100)
     empty = length - filled
-    bar = "█" * filled + "░" * empty
+    bar = "▰" * filled + "▱" * empty
     return bar
 
 
