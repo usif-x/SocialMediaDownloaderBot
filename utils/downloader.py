@@ -512,44 +512,28 @@ class VideoDownloader:
             ydl_opts["cookiefile"] = cookies_file
 
         # Configure postprocessors based on platform and format type
+        # CRITICAL FIX: Minimal post-processing to avoid file deletion race conditions
         if format_type == "video":
-            ydl_opts["writethumbnail"] = True
-
             if is_instagram:
-                # Instagram: minimal processing
-                ydl_opts["postprocessors"] = [
-                    {
-                        "key": "FFmpegMetadata",
-                    },
-                ]
+                # Instagram: No post-processing at all - videos are already in good format
+                pass
             else:
-                # Other platforms: Use simpler post-processing to avoid file conflicts
-                # IMPORTANT: Don't use FFmpegVideoRemuxer, use FFmpegVideoConvertor instead
+                # Other platforms: Only add metadata, NO conversion to avoid file issues
+                # The merge_output_format handles format conversion during download
+                ydl_opts["merge_output_format"] = "mp4"
                 ydl_opts["postprocessors"] = [
                     {
-                        "key": "FFmpegVideoConvertor",
-                        "preferedformat": "mp4",
-                    },
-                    {
                         "key": "FFmpegMetadata",
-                    },
-                    {
-                        "key": "EmbedThumbnail",
-                        "already_have_thumbnail": False,
                     },
                 ]
         else:
-            # Audio extraction
+            # Audio extraction - keep this as is since it works
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"] = [
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "m4a",
                     "preferredquality": "192",
-                },
-                {
-                    "key": "EmbedThumbnail",
-                    "already_have_thumbnail": False,
                 },
                 {
                     "key": "FFmpegMetadata",
