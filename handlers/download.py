@@ -667,7 +667,7 @@ async def download_and_send_video(
                 download.error_message = error_msg or "Download failed"
                 db.commit()
                 await safe_edit_message(
-                    download_msg, f"❌ Download failed: {error_msg or 'Unknown error'}"
+                    download_msg, f"❌ {error_msg or 'Unknown error'}"
                 )
                 downloader.cleanup_user_files(user_id)
                 return
@@ -703,7 +703,7 @@ async def download_and_send_video(
                 download.error_message = error_msg or "Download failed"
                 db.commit()
                 await safe_edit_message(
-                    download_msg, f"❌ Download failed: {error_msg or 'Unknown error'}"
+                    download_msg, f"❌ {error_msg or 'Unknown error'}"
                 )
                 # Clean up any leftover files
                 downloader.cleanup_user_files(user_id)
