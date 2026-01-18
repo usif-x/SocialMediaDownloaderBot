@@ -31,6 +31,7 @@ class VideoDownloader:
     def get_video_info(self, url: str) -> Optional[Dict]:
         """
         Extract video information without downloading
+        FIXED: Removed allow_unplayable_formats
 
         Returns:
             Dictionary containing video info or None if failed
@@ -49,9 +50,10 @@ class VideoDownloader:
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
-            "remote_components": ["ejs:github"],
-            "js": "deno",
-            "allow_unplayable_formats": True,
+            # REMOVED: These options that can cause issues
+            # "remote_components": ["ejs:github"],
+            # "js": "deno",
+            # "allow_unplayable_formats": True,
         }
 
         # Add cookie support for YouTube and other sites
@@ -98,7 +100,7 @@ class VideoDownloader:
                                 logger.error(
                                     f"iOS client fallback also failed: {fallback_e}"
                                 )
-                                raise fallback_e  # Re-raise the fallback error if it fails
+                                raise fallback_e
                     else:
                         raise e
 
@@ -234,7 +236,6 @@ class VideoDownloader:
                             and (fmt.get("tbr") or fmt.get("vbr"))
                         ):
                             # Estimate filesize from bitrate
-                            # filesize = (bitrate in bits/sec * duration) / 8
                             tbr = fmt.get("tbr") or fmt.get("vbr")
                             if tbr:
                                 filesize = int((tbr * 1024 * video_duration) / 8)
@@ -250,7 +251,7 @@ class VideoDownloader:
                             "height": height,
                         }
 
-                        # Check for video formats (including Apple HLS/m3u8)
+                        # Check for video formats
                         is_video = fmt_vcodec and fmt_vcodec != "none"
 
                         # Add all video formats with valid height
@@ -435,7 +436,7 @@ class VideoDownloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """
         Download video or audio with specified quality
-        FIXED for merge issues and file detection
+        FIXED: Removed allow_unplayable_formats to enable proper merging
         """
         self._progress_callback = progress_callback
         self._last_progress_update = 0
@@ -455,10 +456,8 @@ class VideoDownloader:
             else:
                 format_string = "bestaudio/best"
         else:
-            # CRITICAL FIX FOR INSTAGRAM: Use simpler format selection
             if is_instagram:
                 # Instagram requires special handling - just use best
-                # Don't try to merge separate streams as it causes issues
                 format_string = "best"
             elif format_id and format_id != "best":
                 # For other platforms, merge video+audio
@@ -476,13 +475,13 @@ class VideoDownloader:
         ydl_opts = {
             "format": format_string,
             "outtmpl": output_template,
-            "quiet": False,  # Changed to see errors
-            "no_warnings": False,  # Changed to see warnings
-            "noprogress": False,  # Changed to see progress
+            "quiet": False,
+            "no_warnings": False,
+            "noprogress": False,
             "ignoreerrors": False,
             "socket_timeout": 60,
-            "retries": 5,  # Increased retries
-            "fragment_retries": 5,  # Increased fragment retries
+            "retries": 5,
+            "fragment_retries": 5,
             "restrictfilenames": True,
             "windowsfilenames": True,
             "progress_hooks": [self._progress_hook],
@@ -492,12 +491,12 @@ class VideoDownloader:
             "extractor_args": {
                 "youtube": {"player_client": ["default", "-web_safari"]},
             },
-            "remote_components": ["ejs:github"],
-            "js": "deno",
-            "allow_unplayable_formats": True,
-            # CRITICAL FIX: Ensure proper merging
-            "keepvideo": False,  # Delete source files after merge
-            "overwrites": True,  # Overwrite existing files
+            # CRITICAL FIX: Removed these options that prevent merging
+            # "remote_components": ["ejs:github"],
+            # "js": "deno",
+            # "allow_unplayable_formats": True,  # THIS WAS CAUSING THE ISSUE!
+            "keepvideo": False,
+            "overwrites": True,
         }
 
         # Add cookie support
@@ -510,14 +509,14 @@ class VideoDownloader:
             ydl_opts["writethumbnail"] = True
 
             if is_instagram:
-                # INSTAGRAM SPECIFIC FIX: Use simpler post-processing
+                # INSTAGRAM SPECIFIC: Use simpler post-processing
                 ydl_opts["postprocessors"] = [
                     {
                         "key": "FFmpegMetadata",
                     },
                 ]
             else:
-                # CRITICAL FIX: Properly configure merge for other platforms
+                # For other platforms: proper merging
                 ydl_opts["merge_output_format"] = "mp4"
                 ydl_opts["postprocessors"] = [
                     {
@@ -532,7 +531,7 @@ class VideoDownloader:
                         "already_have_thumbnail": False,
                     },
                 ]
-                # CRITICAL: Set ffmpeg location explicitly
+                # Set ffmpeg location explicitly
                 ffmpeg_location = shutil.which("ffmpeg")
                 if ffmpeg_location:
                     ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_location)
@@ -652,9 +651,15 @@ class VideoDownloader:
                             logger.info(f"Checking: {full_path}")
 
                             if os.path.isfile(full_path):
-                                # Skip .part files
-                                if full_path.endswith(".part"):
-                                    logger.info(f"Skipping .part file: {full_path}")
+                                # Skip .part files, .webp thumbnails, and temp files
+                                if (
+                                    full_path.endswith(".part")
+                                    or full_path.endswith(".webp")
+                                    or full_path.endswith(".jpg")
+                                ):
+                                    logger.info(
+                                        f"Skipping temp/thumbnail file: {full_path}"
+                                    )
                                     continue
 
                                 if any(
@@ -702,7 +707,7 @@ class VideoDownloader:
                     except Exception as e:
                         logger.error(f"Error cleaning .part files: {e}")
 
-                    # Fallback: try again with a simpler format and minimal postprocessors
+                    # Fallback: try again with a simpler format
                     try:
                         logger.info("Attempting fallback with 'best' format")
                         fallback_opts = {
