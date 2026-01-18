@@ -3,17 +3,20 @@ FROM mcr.microsoft.com/playwright/python:v1.49.1-jammy
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Install system dependencies
 # Playwright image has browser deps, but we need ffmpeg and xvfb for our specific usage
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ffmpeg \
-  nodejs \
-  npm \
   gcc \
   libpq-dev \
   xvfb \
   && rm -rf /var/lib/apt/lists/*
+
+# Install Deno (JavaScript/TypeScript runtime)
+RUN curl -fsSL https://deno.land/install.sh | sh
 
 # Set work directory
 WORKDIR /app
