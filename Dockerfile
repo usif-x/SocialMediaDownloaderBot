@@ -15,6 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   xvfb \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y \
+  curl \
+  unzip \
+  ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+
 # Install Deno (JavaScript/TypeScript runtime)
 RUN curl -fsSL https://deno.land/install.sh | sh
 
