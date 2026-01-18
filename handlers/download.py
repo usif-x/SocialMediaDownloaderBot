@@ -19,6 +19,7 @@ from utils import (
     redis_client,
     telethon_uploader,
 )
+from utils.downloader import create_progress_bar
 
 
 def normalize_youtube_url(url: str) -> str:
@@ -818,12 +819,13 @@ async def download_and_send_video(
 
                     speed_str = f"{format_file_size(int(speed))}/s"
                     eta_str = format_duration(int(eta)) if eta > 0 else "Calculating..."
+                    progress_bar = create_progress_bar(percentage, length=10)
 
                     try:
                         await safe_edit_message(
                             download_msg,
                             f"📤 Uploading large file...\n\n"
-                            f"Progress: {percentage:.1f}%\n"
+                            f"Progress: {progress_bar} {percentage:.1f}%\n"
                             f"Uploaded: {format_file_size(current)} / {format_file_size(total)}\n"
                             f"Speed: {speed_str}\n"
                             f"Estimated Time: {eta_str}",
