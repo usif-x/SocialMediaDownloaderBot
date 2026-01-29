@@ -349,22 +349,30 @@ async def handle_url(
         has_image = video_info.get("has_image", False)
 
         if has_image and not has_video:
-            # Image content
+            # Image content - escape Markdown special characters
+            title = video_info['title'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            uploader = video_info['uploader'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            platform = video_info['platform'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            
             info_message = (
                 f"🖼 *Image Information*\n\n"
-                f"📝 *Title:* {video_info['title']}\n"
-                f"👤 *Uploader:* {video_info['uploader']}\n"
-                f"🌐 *Platform:* {video_info['platform']}\n"
+                f"📝 *Title:* {title}\n"
+                f"👤 *Uploader:* {uploader}\n"
+                f"🌐 *Platform:* {platform}\n"
                 f"👁 *Views:* {format_views(video_info['views'])}\n\n"
                 f"🎯 *Select Format:*"
             )
         else:
-            # Video/Audio content
+            # Video/Audio content - escape Markdown special characters in title and uploader
+            title = video_info['title'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            uploader = video_info['uploader'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            platform = video_info['platform'].replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            
             info_message = (
                 f"📹 *Video Information*\n\n"
-                f"📝 *Title:* {video_info['title']}\n"
-                f"👤 *Uploader:* {video_info['uploader']}\n"
-                f"🌐 *Platform:* {video_info['platform']}\n"
+                f"📝 *Title:* {title}\n"
+                f"👤 *Uploader:* {uploader}\n"
+                f"🌐 *Platform:* {platform}\n"
                 f"🕔 *Duration:* {format_duration(video_info['duration'])}\n"
                 f"👁 *Views:* {format_views(video_info['views'])}\n\n"
                 f"🎯 *Select Format Type:*"
@@ -412,26 +420,36 @@ async def handle_url(
             if thumbnail_url:
                 try:
                     try:
-                        await processing_msg.delete()
-                    except:
-                        pass
-
-                    try:
                         await update.message.reply_photo(
                             photo=thumbnail_url,
                             caption=info_message,
                             parse_mode="Markdown",
                         )
-                    except Exception:
+                        # If photo sent successfully, delete processing message
+                        try:
+                            await processing_msg.delete()
+                        except:
+                            pass
+                    except Exception as photo_error:
+                        logger.warning(f"Failed to send photo with Markdown: {photo_error}")
                         try:
                             await update.message.reply_photo(
                                 photo=thumbnail_url,
                                 caption=info_message,
                             )
-                        except Exception:
-                            await safe_edit_message(processing_msg, info_message)
-                except Exception:
-                    await safe_edit_message(processing_msg, info_message)
+                            # If photo sent successfully, delete processing message
+                            try:
+                                await processing_msg.delete()
+                            except:
+                                pass
+                        except Exception as photo_error_plain:
+                            logger.warning(f"Failed to send photo without parsing: {photo_error_plain}")
+                            # Fall back to editing the processing message instead of deleting it
+                            await safe_edit_message(processing_msg, info_message, parse_mode=None)
+                except Exception as e:
+                    logger.error(f"Failed to send photo: {e}")
+                    # Fall back to editing the processing message
+                    await safe_edit_message(processing_msg, info_message, parse_mode=None)
             else:
                 await processing_msg.edit_text(info_message, parse_mode="Markdown")
 
@@ -446,18 +464,19 @@ async def handle_url(
             if thumbnail_url:
                 try:
                     try:
-                        await processing_msg.delete()
-                    except:
-                        pass
-
-                    try:
                         await update.message.reply_photo(
                             photo=thumbnail_url,
                             caption=info_message,
                             reply_markup=reply_markup,
                             parse_mode="Markdown",
                         )
-                    except Exception:
+                        # If photo sent successfully, delete processing message
+                        try:
+                            await processing_msg.delete()
+                        except:
+                            pass
+                    except Exception as photo_error:
+                        logger.warning(f"Failed to send photo with Markdown: {photo_error}")
                         try:
                             await update.message.reply_photo(
                                 photo=thumbnail_url,
@@ -465,13 +484,22 @@ async def handle_url(
                                 reply_markup=reply_markup,
                                 parse_mode="MarkdownV2",
                             )
-                        except Exception:
+                            # If photo sent successfully, delete processing message
+                            try:
+                                await processing_msg.delete()
+                            except:
+                                pass
+                        except Exception as photo_error_v2:
+                            logger.warning(f"Failed to send photo with MarkdownV2: {photo_error_v2}")
+                            # Fall back to editing the processing message instead of deleting it
                             await safe_edit_message(
-                                processing_msg, info_message, parse_mode=None
+                                processing_msg, info_message, parse_mode=None, reply_markup=reply_markup
                             )
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Failed to send photo: {e}")
+                    # Fall back to editing the processing message
                     await safe_edit_message(
-                        processing_msg, info_message, parse_mode=None
+                        processing_msg, info_message, parse_mode=None, reply_markup=reply_markup
                     )
             else:
                 await processing_msg.edit_text(
@@ -517,6 +545,16 @@ async def handle_url(
 
 async def safe_edit_message(message, text, parse_mode=None, reply_markup=None):
     """Safely edit a message whether it has text or caption"""
+    logger = logging.getLogger(__name__)
+    
+    # Check if message exists
+    if not message:
+        logger.error("Cannot edit: message is None")
+        return
+        
+    # Log what we're trying to do
+    logger.debug(f"safe_edit_message: text_length={len(text)}, parse_mode={parse_mode}, has_photo={bool(message.photo)}")
+    
     try:
         if message.photo or message.video or message.audio or message.document:
             # Message has media, edit caption
@@ -529,6 +567,7 @@ async def safe_edit_message(message, text, parse_mode=None, reply_markup=None):
                 text, parse_mode=parse_mode, reply_markup=reply_markup
             )
     except Exception as e:
+        logger.warning(f"First edit attempt failed: {e}")
         # If edit fails, try the other method as fallback
         try:
             if message.text:
@@ -539,7 +578,8 @@ async def safe_edit_message(message, text, parse_mode=None, reply_markup=None):
                 await message.edit_caption(
                     caption=text, parse_mode=parse_mode, reply_markup=reply_markup
                 )
-        except:
+        except Exception as e2:
+            logger.error(f"Both edit attempts failed: {e2}")
             pass  # Ignore if both fail
 
 

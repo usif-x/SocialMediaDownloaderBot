@@ -10,8 +10,50 @@ from handlers.download import download_and_send_video, safe_edit_message
 from utils import VideoDownloader, redis_client
 
 
+def escape_markdown(text: str) -> str:
+    """Escape special Markdown characters"""
+    if not text:
+        return text
+    # Escape characters that have special meaning in Markdown
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
+def safe_markdown_text(text: str, parse_mode: str = "Markdown") -> str:
+    """Safely prepare text for Markdown parsing"""
+    if parse_mode not in ["Markdown", "MarkdownV2"]:
+        return text
+    
+    # For Markdown, we need to ensure entities are properly closed
+    # Simple approach: remove any unclosed Markdown entities
+    import re
+    
+    # Remove any standalone asterisks, underscores, etc. that might cause issues
+    # This is a simplified approach - in production you'd want more robust parsing
+    text = re.sub(r'(?<!\\)\*(?!\*)', '\\*', text)  # Escape single asterisks
+    text = re.sub(r'(?<!\\)_(?!_)', '\\_', text)    # Escape single underscores
+    text = re.sub(r'(?<!\\)`(?!`)', '\\`', text)    # Escape single backticks
+    
+    # Ensure Markdown entities are balanced
+    # Count opening and closing markers
+    asterisk_pairs = min(text.count('*') // 2, text.count('*') % 2)
+    if asterisk_pairs * 2 < text.count('*'):
+        # Unbalanced asterisks, escape all of them
+        text = text.replace('*', '\\*')
+    
+    underscore_pairs = min(text.count('_') // 2, text.count('_') % 2)
+    if underscore_pairs * 2 < text.count('_'):
+        # Unbalanced underscores, escape all of them
+        text = text.replace('_', '\\_')
+    
+    return text
+
+
 async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle format type and quality selection from inline keyboard"""
+    logger = logging.getLogger(__name__)
     query = update.callback_query
     await query.answer()
 
@@ -146,47 +188,75 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
         )
 
         # Update message with format type selection shown
-        updated_text = query.message.text or query.message.caption
-        if updated_text:
+        original_text = query.message.text or query.message.caption or ""
+        
+        # Clean the original text to fix any Markdown issues
+        if original_text:
+            # First 100 chars for debugging
+            logger.info(f"Original text preview: {original_text[:100]}...")
+            # Clean Markdown
+            original_text = safe_markdown_text(original_text, "Markdown")
+        
+        if original_text:
             # Add format type selection info
-            updated_text = f"{updated_text}\n\n✅ *Selected Format:* {icon} {format_name}\n\n{icon} *Select Quality:*"
+            updated_text = f"{original_text}\n\n✅ *Selected Format:* {icon} {format_name}\n\n{icon} *Select Quality:*"
         else:
             updated_text = f"{icon} *Select Quality:*"
+        
+        # Log for debugging
+        logger.info(f"Format type selection: format_type={format_type}, format_name={format_name}, updated_text_length={len(updated_text)}")
 
         # Try to edit message with photo if it exists
-        if query.message.photo:
+        try:
+            if query.message.photo:
+                try:
+                    # Try without Markdown first to avoid parsing errors
+                    await query.message.edit_caption(
+                        caption=updated_text,
+                        reply_markup=reply_markup,
+                        parse_mode=None,  # Disable Markdown to avoid parsing errors
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to edit caption: {e}")
+                    await safe_edit_message(
+                        query.message,
+                        updated_text,
+                        reply_markup=reply_markup,
+                        parse_mode=None,
+                    )
+            else:
+                try:
+                    await safe_edit_message(
+                        query.message,
+                        updated_text,
+                        reply_markup=reply_markup,
+                        parse_mode=None,  # Disable Markdown to avoid parsing errors
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to edit message: {e}")
+                    await safe_edit_message(
+                        query.message,
+                        updated_text,
+                        reply_markup=reply_markup,
+                        parse_mode=None,
+                    )
+        except Exception as e:
+            logger.error(f"Failed to edit message completely: {e}")
+            # As last resort, send a new message
             try:
-                await query.message.edit_caption(
-                    caption=updated_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown",
-                )
-            except:
-                await safe_edit_message(
-                    query.message,
-                    updated_text,
+                await context.bot.send_message(
+                    chat_id=update.effective_user.id,
+                    text=updated_text,
                     reply_markup=reply_markup,
                     parse_mode=None,
                 )
-        else:
-            try:
-                await safe_edit_message(
-                    query.message,
-                    updated_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown",
-                )
-            except:
-                await safe_edit_message(
-                    query.message,
-                    updated_text,
-                    reply_markup=reply_markup,
-                    parse_mode=None,
-                )
+            except Exception as final_e:
+                logger.error(f"Failed to send new message: {final_e}")
 
     # Handle quality selection
     elif action == "quality":
         if len(callback_data) < 5:
+            logger.error(f"Invalid callback data length: {callback_data}")
             await safe_edit_message(
                 query.message, "❌ Invalid selection. Please try again."
             )
@@ -196,21 +266,31 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
         # quality may contain underscores so join the middle parts
         format_type = callback_data[1]  # 'video', 'audio', or 'image'
         if len(callback_data) < 4:
+            logger.error(f"Invalid callback data for quality selection: {callback_data}")
             await safe_edit_message(
                 query.message, "❌ Invalid selection. Please try again."
             )
             return
 
-        download_id = int(callback_data[-1])
-        format_id_raw = callback_data[-2]
-        format_id = format_id_raw if format_id_raw != "none" else None
-        # quality is everything between index 2 and -2
-        quality = (
-            "_".join(callback_data[2:-2])
-            if len(callback_data) > 4
-            else callback_data[2]
-        )
-        user_id = update.effective_user.id
+        try:
+            download_id = int(callback_data[-1])
+            format_id_raw = callback_data[-2]
+            format_id = format_id_raw if format_id_raw != "none" else None
+            # quality is everything between index 2 and -2
+            quality = (
+                "_".join(callback_data[2:-2])
+                if len(callback_data) > 4
+                else callback_data[2]
+            )
+            user_id = update.effective_user.id
+            
+            logger.info(f"Quality selection parsed: format_type={format_type}, quality={quality}, format_id={format_id}, download_id={download_id}")
+        except Exception as e:
+            logger.error(f"Failed to parse callback data {callback_data}: {e}")
+            await safe_edit_message(
+                query.message, "❌ Invalid selection data. Please try again."
+            )
+            return
 
         # Update message to show selection
         icon = (
@@ -226,29 +306,59 @@ async def handle_quality_selection(update: Update, context: ContextTypes.DEFAULT
 
         # Get current message text
         current_text = query.message.text or query.message.caption or ""
+        
+        # Log for debugging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Quality selection: format_type={format_type}, quality={quality}, current_text_length={len(current_text)}")
 
-        # Update with selection info
-        updated_text = f"{current_text}\n\n✅ *Selected Quality:* {icon} {quality}\n⬇️ *Starting download...*"
+        # Update with selection info - escape any Markdown special characters in quality
+        # Escape underscores, asterisks, brackets, etc. that might be in quality string
+        escaped_quality = quality.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+        updated_text = f"{current_text}\n\n✅ *Selected Quality:* {icon} {escaped_quality}\n⬇️ *Starting download...*"
+        
+        # Check if message is too long (Telegram limit is 4096 characters)
+        if len(updated_text) > 4000:
+            logger.warning(f"Message too long ({len(updated_text)} chars), truncating...")
+            # Keep only the last part if too long
+            updated_text = f"✅ *Selected Quality:* {icon} {escaped_quality}\n⬇️ *Starting download...*"
 
         # Try to edit caption if message has photo, otherwise edit text
-        if query.message.photo:
-            try:
-                await query.message.edit_caption(
-                    caption=updated_text,
-                    parse_mode="Markdown",
-                )
-            except:
+        try:
+            # First check if we can access the message
+            if not query.message:
+                logger.error("Query message is None, cannot edit")
+                raise Exception("Message is None")
+                
+            if query.message.photo:
+                try:
+                    await query.message.edit_caption(
+                        caption=updated_text,
+                        parse_mode=None,  # Disable Markdown to avoid parsing errors
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to edit caption: {e}")
+                    await safe_edit_message(
+                        query.message,
+                        updated_text,
+                        parse_mode=None,
+                    )
+            else:
                 await safe_edit_message(
                     query.message,
                     updated_text,
-                    parse_mode="Markdown",
+                    parse_mode=None,  # Disable Markdown to avoid parsing errors
                 )
-        else:
-            await safe_edit_message(
-                query.message,
-                updated_text,
-                parse_mode="Markdown",
-            )
+        except Exception as e:
+            logger.error(f"Failed to update selection message: {e}")
+            # As last resort, send a new message
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_user.id,
+                    text=updated_text,
+                    parse_mode=None,
+                )
+            except Exception as final_e:
+                logger.error(f"Failed to send new selection message: {final_e}")
 
         # Start download
         await download_and_send_video(
